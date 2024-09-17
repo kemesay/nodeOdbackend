@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Air Point Redemption Rejection</title>
+    <style>
+        /* Header styling */
+        .header {
+            background-color: #4CAF50; /* Green branding color */
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Airline Name</h1>
+    </div>
+
+    <p>Dear <%= recipientName %>,</p>
+
+    <p>We regret to inform you that your <%= airPointType %> request has been rejected due to the following reasons:</p>
+
+    <p>
+        <% reasons.forEach((reason, index) => { %>
+            <%= reason %><%= index !== reasons.length - 1 ? ', ' : '' %>
+        <% }); %>
+    </p>
+
+    <p>Please review your account status and criteria for redemption eligibility. Feel free to contact us for further assistance.</p>
+
+    <p>Sincerely,<br>
+    [Your Airline's Name]</p>
+</body>
+</html>

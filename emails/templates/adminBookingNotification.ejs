@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>New Booking Notification</title>
+    <style>
+      body,
+      p {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f2f2f2;
+      }
+      .container {
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #ffffff;
+        border-radius: 10px;
+        box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #006600;
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      p {
+        color: #333333;
+        line-height: 1.5;
+        margin-bottom: 10px;
+      }
+      .booking-details {
+        background-color: #f9f9f9;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+      }
+      .footer {
+        text-align: center;
+        margin-top: 20px;
+        color: #666666;
+      }
+      .login-link {
+        text-align: center;
+        margin-top: 20px;
+      }
+      .login-link a {
+        color: #006600;
+        text-decoration: none;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>New Booking Notification</h1>
+      <div class="booking-details">
+        <p><strong>Booking Type:</strong> <%= bookingType %></p>
+        <p><strong>Date:</strong> <%= date %></p>
+        <p><strong>Passenger Name:</strong> <%= name %></p>
+        <p><strong>Total Trip Fee:</strong> $<%= totalTripFee %></p>
+      </div>
+      <p>Dear Admin,</p>
+      <p>
+        A new booking has been placed. Please log in to the admin portal to view
+        the full details.
+      </p>
+      <div class="login-link">
+        <a href="https://odatransportation.com">Log in to Admin Portal</a>
+      </div>
+      <div class="footer">
+        <p>This is an automated email. Please do not reply.</p>
+      </div>
+    </div>
+  </body>
+</html>

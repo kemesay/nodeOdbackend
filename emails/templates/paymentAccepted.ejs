@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Payment Accepted</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f5f5f5;
+        color: #333;
+        margin: 0;
+        padding: 0;
+      }
+
+      .email-container {
+        width: 100%;
+        max-width: 600px;
+        margin: 20px auto;
+        background-color: #fff;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      }
+
+      .header {
+        text-align: center;
+        color: #28a745; /* Green color for the header */
+      }
+
+      .content {
+        padding: 10px 0;
+      }
+
+      .content p {
+        margin: 10px 0;
+      }
+
+      .content strong {
+        font-weight: bold;
+      }
+
+      .footer {
+        text-align: center;
+        margin-top: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="email-container">
+      <div class="header">
+        <h1>Payment Accepted</h1>
+      </div>
+      <div class="content">
+        <p>Dear <%= name %>,</p>
+        <p>
+          We are pleased to inform you that your payment has been successfully
+          processed. Here are the details:
+        </p>
+        <p><strong>Booking Type:</strong> <%= bookingType %></p>
+        <p><strong>Total Trip Fee:</strong> $<%= totalTripFee %></p>
+        <p><strong>Pickup Location:</strong> <%= pickupLocation %></p>
+        <p><strong>Pickup Date:</strong> <%= pickupDate %></p>
+
+        <p>Thank you for your payment. We look forward to serving you.</p>
+        <p>
+          If you have any questions or need further assistance, please don't
+          hesitate to contact us.
+        </p>
+      </div>
+      <div class="footer">
+        <p>Best regards,<br />Oda Transportation</p>
+      </div>
+    </div>
+  </body>
+</html>

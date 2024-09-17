@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Booking Confirmation</title>
+  </head>
+  <body>
+    <div
+      style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto"
+    >
+      <h2 style="color: green">Booking Confirmation</h2>
+      <p style="color: none">Thank you, <%= name %>,</p>
+      <p style="color: none">
+        ... for choosing ODA Transportation Town Car Service for your
+        reservation of car service on <%= reservationDate %> at <%=
+        reservationTime %>.
+      </p>
+      <p style="color: none">
+        We will confirm your reservation status to <%= userEmail %> shortly.
+        Alternatively, feel free to reach out to us at 714-313-4269.
+      </p>
+
+      <!-- Contact Details -->
+      <h3 style="color: white; background-color: black; padding: 5px">
+        Contact Details:
+      </h3>
+      <table cellspacing="0" cellpadding="5" style="border-collapse: collapse">
+        <tbody>
+          <% Object.entries(contactDetails).forEach(([key, value]) => { %>
+          <tr>
+            <td style="border: none"><%= key %></td>
+            <td style="border: none"><%= value %></td>
+          </tr>
+          <% }); %>
+        </tbody>
+      </table>
+
+      <!-- Reservation Details -->
+      <h3 style="color: white; background-color: black; padding: 5px">
+        Reservation Details:
+      </h3>
+      <table cellspacing="0" cellpadding="5" style="border-collapse: collapse">
+        <tbody>
+          <% Object.entries(reservationDetails).forEach(([key, value]) => { %>
+          <tr>
+            <td style="border: none"><%= key %></td>
+            <td style="border: none"><%= value %></td>
+          </tr>
+          <% }); %>
+        </tbody>
+      </table>
+
+      <!-- Fare Details -->
+      <h3 style="color: white; background-color: black; padding: 5px">
+        Fare Details:
+      </h3>
+      <table cellspacing="0" cellpadding="5" style="border-collapse: collapse">
+        <tbody>
+          <% Object.entries(fareDetails).forEach(([key, value]) => { %>
+          <tr>
+            <td style="border: none"><%= key %></td>
+            <td style="border: none"><%= value %></td>
+          </tr>
+          <% }); %>
+          <tr>
+            <td style="border: none; font-weight: bold; background-color: gray">
+              Total Fare
+            </td>
+            <td
+              style="
+                border: none;
+                font-weight: bold;
+                background-color: gray;
+                font-size: 1.2em;
+              "
+            >
+              <%= totalFare %>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Additional Message -->
+      <h3 style="color: white; background-color: black; padding: 5px">
+        Additional Message:
+      </h3>
+      <p>
+        For more information on your Car & Limo Reservation status or
+        Cancellation contact us on: 714-313-4269<br />
+      </p>
+      <p>
+        <strong><u>Cancellation Policy:</u></strong>
+      </p>
+      <p>
+        Next Day Early Morning Pickup Cancellation can be done before 9:00PM or
+        4 Hours Prior Notice has to be by Phone / E-Mail
+      </p>
+      <p>
+        <strong style="color: black"
+          >ODA Transportation Town Car Service</strong
+        >
+      </p>
+      <p style="color: #007bff">
+        714-313-4269<br />
+        +1-800-714-4992<br />
+        California 90046<br />
+        United States<br />
+        odatransportation@gmail.com<br />
+        <a href="http://www.odatransportation.com" style="color: #007bff"
+          >www.odatransportation.com</a
+        ><br />
+      </p>
+    </div>
+  </body>
+</html>
