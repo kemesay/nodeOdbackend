@@ -1,0 +1,42 @@
+const { json } = require("express");
+const errorHandler = require("../middleware/errorHandler.js");
+const users = require("../routes/user/userRoutes.js");
+const auth = require("../routes/user/authRoutes.js");
+const cars = require("../routes/carRoutes.js");
+const popularPlaceRoutes = require("../routes/popularPlaceRoutes.js");
+const extraOptions = require("../routes/extraOptionRoutes.js");
+const pointToPointBooks = require("../routes/pointToPointBookRoutes.js");
+const hourlyCharterBooks = require("../routes/hourlyCharterBookRoutes.js");
+const airports = require("../routes/airportBooking/airportRoutes.js");
+const airportPickupPreference = require("../routes/airportBooking/airportPickupPreferenceRoutes.js");
+const additionalStopOnTheWay = require("../routes/booking/additionalStopOnTheWayRoutes.js");
+const airportBookRoutes = require("../routes/airportBooking/airportBookRoutes.js");
+const userBooking = require("../routes/userBookingRoutes.js");
+const adminBooking = require("../routes/admin/bookingRoutes.js");
+const paymentDetailRoute = require("../routes/paymentDetailRoutes.js");
+const footerContentRoutes = require("../routes/companyInfo/footerContentRoutes.js");
+const socialMediaRoutes = require("../routes/companyInfo/socialMediaRoutes.js");
+const gratuityRoutes = require("../routes/gratuityRoutes.js");
+
+module.exports = function setupRoutes(app) {
+  app.use(json());
+  app.use("/api/v1/users", users);
+  app.use("/api/v1/auth", auth);
+  app.use("/api/v1/cars", cars);
+  app.use("/api/v1/popular-places", popularPlaceRoutes);
+  app.use("/api/v1/extra-options", extraOptions);
+  app.use("/api/v1/gratuities", gratuityRoutes);
+
+  app.use("/api/v1/additional-stops", additionalStopOnTheWay);
+  app.use("/api/v1/airports", airports);
+  app.use("/api/v1/airport/pickup-preference", airportPickupPreference);
+  app.use("/api/v1/point-to-point-books", pointToPointBooks);
+  app.use("/api/v1/hourly-charter-books", hourlyCharterBooks);
+  app.use("/api/v1/airport-books", airportBookRoutes);
+  app.use("/api/v1/users/bookings", userBooking);
+  app.use("/api/v1/users/payment-detail", paymentDetailRoute);
+  app.use("/api/v1/admin/bookings", adminBooking);
+  app.use("/api/v1/footer-contents", footerContentRoutes);
+  app.use("/api/v1/social-medias", socialMediaRoutes);
+  app.use(errorHandler);
+};

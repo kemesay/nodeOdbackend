@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>New Booking Notification</title>
+  </head>
+  <body>
+    <div
+      style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto"
+    >
+      <h2 style="color: green">New Booking Notification</h2>
+      <p style="color: none">Dear Admin,</p>
+      <p style="color: none">
+        A new booking has been successfully placed. Please log in to the admin
+        portal to take the necessary actions.
+        <a href="https://odatransportation.com">Log in to Admin Portal</a>
+      </p>
+      <!-- Contact Details -->
+      <h3 style="color: white; background-color: black; padding: 5px">
+        Contact Details:
+      </h3>
+      <table cellspacing="0" cellpadding="5" style="border-collapse: collapse">
+        <tbody>
+          <% Object.entries(contactDetails).forEach(([key, value]) => { %>
+          <tr>
+            <td style="border: none"><%= key %></td>
+            <td style="border: none"><%= value %></td>
+          </tr>
+          <% }); %>
+        </tbody>
+      </table>
+
+      <!-- Reservation Details -->
+      <h3 style="color: white; background-color: black; padding: 5px">
+        Reservation Details:
+      </h3>
+      <table cellspacing="0" cellpadding="5" style="border-collapse: collapse">
+        <tbody>
+          <% Object.entries(reservationDetails).forEach(([key, value]) => { %>
+          <tr>
+            <td style="border: none"><%= key %></td>
+            <td style="border: none"><%= value %></td>
+          </tr>
+          <% }); %>
+        </tbody>
+      </table>
+
+      <!-- Fare Details -->
+      <h3 style="color: white; background-color: black; padding: 5px">
+        Fare Details:
+      </h3>
+      <table cellspacing="0" cellpadding="5" style="border-collapse: collapse">
+        <tbody>
+          <% Object.entries(fareDetails).forEach(([key, value]) => { %>
+          <tr>
+            <td style="border: none"><%= key %></td>
+            <td style="border: none"><%= value %></td>
+          </tr>
+          <% }); %>
+          <tr>
+            <td style="border: none; font-weight: bold; background-color: gray">
+              Total Fare
+            </td>
+            <td
+              style="
+                border: none;
+                font-weight: bold;
+                background-color: gray;
+                font-size: 1.2em;
+              "
+            >
+              <%= totalFare %>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        <strong style="color: black"
+          >ODA Transportation Town Car Service</strong
+        >
+      </p>
+      <p style="color: #007bff">
+        714-313-4269<br />
+        +1-800-714-4992<br />
+        California 90046<br />
+        United States<br />
+        odatransportation@gmail.com<br />
+        <a href="http://www.odatransportation.com" style="color: #007bff"
+          >www.odatransportation.com</a
+        ><br />
+      </p>
+    </div>
+  </body>
+</html>
