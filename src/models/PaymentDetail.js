@@ -84,8 +84,9 @@ const PaymentDetail = sequelize.define(
 );
 
 // Define association with User model
-User.hasOne(PaymentDetail, { foreignKey: "userId" });
+User.hasMany(PaymentDetail, { foreignKey: "userId" });
 PaymentDetail.belongsTo(User, { foreignKey: "userId" });
+
 
 // // Joi schema for PaymentDetail
 function validatePaymentDetail(data) {

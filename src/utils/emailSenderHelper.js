@@ -1,48 +1,44 @@
+function formatDateTime(dateString) {
+  const date = new Date(dateString);
+  
+  const formattedDate = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  }).format(date);
+
+  const formattedTime = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  }).format(date);
+
+  return {
+    date: formattedDate,
+    time: `${formattedTime}`
+  };
+}
+
 function getP2PReservationDetails(bookingType, booking) {
-  const date = new Date(booking.pickupDateTime);
-  const optionsDate = {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  };
-  const optionsTime = {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  };
-  const reservationDate = date.toLocaleDateString("en-US", optionsDate);
-  const reservationTime = date.toLocaleTimeString("en-US", optionsTime);
+  const pickupDateTime = formatDateTime(booking.pickupDateTime);
+  const returnDateTime = formatDateTime(booking.returnPickupDateTime);
 
-
-
-  const date1 = new Date(booking.returnPickupDateTime);
-  // const optionsDate1 = {
-  //   year: "numeric",
-  //   month: "2-digit",
-  //   day: "2-digit",
-  // };
-  // const optionsTime1 = {
-  //   hour: "numeric",
-  //   minute: "2-digit",
-  //   hour12: true,
-  // };
-  const reservationDate1 = date1.toLocaleDateString("en-US", optionsDate);
-  const reservationTime1 = date1.toLocaleTimeString("en-US", optionsTime);
-   
   const reservationDetails = {
     "Service Type": `${bookingType} (${booking.tripType})`,
     "Travel By": booking.Car.carName,
 
     "Pickup Address": booking.pickupPhysicalAddress,
     "Drop off Address": booking.dropoffPhysicalAddress,
-    "Travel Date on": reservationDate,
-    "Travel Time at": reservationTime,
+    "Travel Date on": pickupDateTime.date,
+    "Travel Time at": pickupDateTime.time,
 
     // Placeholder to maintain order
     "Return Pickup Address": null,
     "Return Drop off Address": null,
-    "Return Date on": reservationDate1,
-    "Return Time on": reservationTime1,
+    "Return Date on": returnDateTime.date,
+    "Return Time on": returnDateTime.time,
 
 
     "Passengers/Bags":
@@ -65,8 +61,8 @@ function getP2PReservationDetails(bookingType, booking) {
       booking.dropoffPhysicalAddress;
     reservationDetails["Return Drop off Address"] =
       booking.pickupPhysicalAddress;
-    reservationDetails["Return Date on"] = reservationDate1;
-    reservationDetails["Return Time on"] = reservationTime1;
+    reservationDetails["Return Date on"] = returnDateTime.date;
+    reservationDetails["Return Time on"] = returnDateTime.time;
   } else {
     delete reservationDetails["Return Pickup Address"];
     delete reservationDetails["Return Drop off Address"];
@@ -130,31 +126,17 @@ function getP2PReservationDetails(bookingType, booking) {
 
 //============================================================================================================
 function getHourlyCharterDetails(bookingType, booking) {
-
-  const date = new Date(booking.pickupDateTime);
-    const optionsDate = {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    };
-    const optionsTime = {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    };
-    const reservationDate = date.toLocaleDateString("en-US", optionsDate);
-    const reservationTime = date.toLocaleTimeString("en-US", optionsTime);
+  const pickupDateTime = formatDateTime(booking.pickupDateTime);
 
   const reservationDetails = {
-    
     "Service Type": bookingType,
     "Travel By": booking.Car.carName,
     // "Selected Hour": booking.selectedHours,
 
     "Pickup Address": booking.pickupPhysicalAddress,
     "Drop off Address": booking.dropoffPhysicalAddress,
-    "Travel Date on": reservationDate,
-    "Trvavel Time at": reservationTime,
+    "Travel Date on": pickupDateTime.date,
+    "Travel Time at": pickupDateTime.time,
 
     Occasion: booking.occasion,
     "Passengers/Bags":
@@ -202,38 +184,8 @@ function getHourlyCharterDetails(bookingType, booking) {
 //==========================================================================================================
 
 function getAirportServiceDetails(bookingType, booking) {
-
-  const date = new Date(booking.returnPickupDateTime);
-    const optionsDate = {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    };
-    const optionsTime = {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    };
-    const reservationDate = date.toLocaleDateString("en-US", optionsDate);
-    const reservationTime = date.toLocaleTimeString("en-US", optionsTime);
-
-
-
-    const date1 = new Date(booking.returnPickupDateTime);
-    // const optionsDate1 = {
-    //   year: "numeric",
-    //   month: "2-digit",
-    //   day: "2-digit",
-    // };
-    // const optionsTime1 = {
-    //   hour: "numeric",
-    //   minute: "2-digit",
-    //   hour12: true,
-    // };
-    const reservationDate1 = date1.toLocaleDateString("en-US", optionsDate);
-    const reservationTime1 = date1.toLocaleTimeString("en-US", optionsTime);
-
-
+  const pickupDateTime = formatDateTime(booking.pickupDateTime);
+  const returnDateTime = formatDateTime(booking.returnPickupDateTime);
 
   const reservationDetails = {
     "Service Type": `${bookingType} (${booking.tripType})`,
@@ -241,14 +193,14 @@ function getAirportServiceDetails(bookingType, booking) {
 
     "Pickup Address": null,
     "Drop off Address": null,
-    "Travel Date on": reservationDate,
-    "Trvavel Time at": reservationTime,
+    "Travel Date on": pickupDateTime.date,
+    "Travel Time at": pickupDateTime.time,
 
     // Placeholder to maintain order
     "Return Pickup Address": null,
     "Return Drop off Address": null,
-    "Return Date on": reservationDate1,
-    "Return Time at": reservationTime1,
+    "Return Date on": returnDateTime.date,
+    "Return Time at": returnDateTime.time,
 
 
     "Airport Name": booking.Airport.airportName,
@@ -268,35 +220,35 @@ function getAirportServiceDetails(bookingType, booking) {
   if (tripType === "Ride from the airport(round trip)") {
     reservationDetails["Pickup Address"] = booking.Airport.airportName;
     reservationDetails["Drop off Address"] = booking.accommodationAddress;
-    reservationDetails["Travel Date on"] = reservationDate;
-    reservationDetails["Travel Time at"] = reservationTime;
+    reservationDetails["Travel Date on"] = pickupDateTime.date;
+    reservationDetails["Travel Time at"] = pickupDateTime.time;
 
 
     reservationDetails["Return Pickup Address"] = booking.accommodationAddress;
     reservationDetails["Return Drop off Address"] = booking.Airport.airportName;
-    reservationDetails["Return Date on"] = reservationDate1;
-    reservationDetails["Return Time at"] = reservationDate1;
+    reservationDetails["Return Date on"] = returnDateTime.date;
+    reservationDetails["Return Time at"] = returnDateTime.time;
 
 
   } else if (tripType === "Ride to the airport(round trip)") {
     reservationDetails["Pickup Address"] = booking.accommodationAddress;
     reservationDetails["Drop off Address"] = booking.Airport.airportName;
-    reservationDetails["Travel Date on"] = reservationDate;
-    reservationDetails["Travel Time at"] = reservationTime;
+    reservationDetails["Travel Date on"] = pickupDateTime.date;
+    reservationDetails["Travel Time at"] = pickupDateTime.time;
 
 
 
     reservationDetails["Return Pickup Address"] = booking.Airport.airportName;
     reservationDetails["Return Drop off Address"] =
       booking.accommodationAddress;
-    reservationDetails["Return Date on"] = reservationDate1;
-    reservationDetails["Return Time at"] = reservationTime1;
+    reservationDetails["Return Date on"] = returnDateTime.date;
+    reservationDetails["Return Time at"] = returnDateTime.time;
 
   } else if (tripType === "Ride to the airport(one way)") {
     reservationDetails["Pickup Address"] = booking.accommodationAddress;
     reservationDetails["Drop off Address"] = booking.Airport.airportName;
-    reservationDetails["Travel Date on"] = reservationDate;
-    reservationDetails["Travel Time at"] = reservationTime;
+    reservationDetails["Travel Date on"] = pickupDateTime.date;
+    reservationDetails["Travel Time at"] = pickupDateTime.time;
 
 
     delete reservationDetails["Return Pickup Address"];
@@ -306,8 +258,8 @@ function getAirportServiceDetails(bookingType, booking) {
   } else {
     reservationDetails["Pickup Address"] = booking.Airport.airportName;
     reservationDetails["Drop off Address"] = booking.accommodationAddress;
-    reservationDetails["Travel Date on"] = reservationDate;
-    reservationDetails["Travel Time at"] = reservationTime;
+    reservationDetails["Travel Date on"] = pickupDateTime.date;
+    reservationDetails["Travel Time at"] = pickupDateTime.time;
 
 
     delete reservationDetails["Return Pickup Address"];

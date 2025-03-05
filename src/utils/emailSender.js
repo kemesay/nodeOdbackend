@@ -158,18 +158,23 @@ async function paymentNotification(userEmail, data) {
 async function bookingNotification(bookingType, booking) {
   try {
     const date = new Date();
-    const optionsDate = {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    };
-    const optionsTime = {
-      hour: "numeric",
-      minute: "2-digit",
+    // Convert to Pacific Time
+    const pacificDate = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(date);
+
+    const pacificTime = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles',
+      hour: 'numeric',
+      minute: '2-digit',
       hour12: true,
-    };
-    const reservationDate = date.toLocaleDateString("en-US", optionsDate);
-    const reservationTime = date.toLocaleTimeString("en-US", optionsTime);
+    }).format(date);
+
+    const reservationDate = pacificDate;  // Will output format like "Mar 2, 2025"
+    const reservationTime = `${pacificTime}`; // Will output format like "6:08 PM (Pacific Time)"
 
     let reservationDetails, fareDetails;
     if (bookingType === "Point to point") {
