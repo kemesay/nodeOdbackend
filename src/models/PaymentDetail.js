@@ -75,11 +75,21 @@ const PaymentDetail = sequelize.define(
         len: [2, 50],
       },
     },
+    isPrimary: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    userId: {
+      type: DataTypes.BIGINT,
+      allowNull: true,  // Allow null for guest bookings
+    }
   },
   {
     sequelize,
     modelName: "PaymentDetail",
     tableName: "payment_details",
+    timestamps: true, // Keep timestamps (createdAt, updatedAt)
   }
 );
 
@@ -129,6 +139,9 @@ function validatePaymentDetail(data) {
       "string.max":
         "Card owner name must be less than or equal to 50 characters",
       "any.required": "Card owner name is required",
+    }),
+    isPrimary: Joi.boolean().required().messages({
+      "any.required": "Primary status is required",
     }),
   });
 

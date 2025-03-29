@@ -1,5 +1,5 @@
 const { Op } = require("sequelize");
-const { ResourceNotFoundError } = require("../../errors/CustomErrors.js");
+const { ResourceNotFoundError, ValidationError } = require("../../errors/CustomErrors.js");
 const { AirportBook } = require("../../models/airportBooking/AirportBook.js");
 const AirportBookExtraOption = require("../../models/airportBooking/AirportBookExtraOption.js");
 const { ExtraOption } = require("../../models/ExtraOption.js");
@@ -7,7 +7,7 @@ const { Car } = require("../../models/Car.js");
 const { getCarById } = require("../booking/carService.js");
 const { Airport } = require("../../models/airportBooking/Airport.js");
 const { getAirportById } = require("./airportService");
-const addOrUpdatePaymentDetail = require("../paymentDetailService.js");
+const { addOrUpdatePaymentDetail, getPrimaryCard, getFromExistingCards, createPaymentDetail } = require("../paymentDetailService.js");
 const { PaymentDetail } = require("../../models/PaymentDetail.js");
 const { Gratuity } = require("../../models/Gratuity.js");
 const { getGratuityById } = require("../booking/gratuityService.js");
@@ -39,88 +39,158 @@ async function createAirportBook(airportBookData) {
     pickupPreferenceId,
     additionalStopId,
     extraOptions,
-    creditCardNumber,
-    expirationDate,
-    securityCode,
-    zipCode,
-    cardOwnerName,
+    paymentDetailId,
+    paymentMethod,
+    isGuestBooking,
+    userId,
+    cardDetails,
     ...otherData
   } = airportBookData;
+
+  if (!paymentMethod) {
+    throw new ValidationError("Payment method is required");
+  }
+
+  if ((paymentMethod === 'PRIMARY_CARD' || paymentMethod === 'EXISTING_CARD')) {
+    if (!userId) {
+      throw new ValidationError("User authentication required for saved payment methods");
+    }
+  }
 
   const confirmationNumber = await generateConfirmationNumber();
 
   let airportBook = await AirportBook.create({
     confirmationNumber,
-    ...otherData,
+    paymentMethod,
+    bookingStatus: 'PENDING_APPROVAL',
+    paymentStatus: 'NOT_PAID',
+    isGuestBooking: isGuestBooking || false,
+    userId,
+    ...otherData
   });
 
-  if (extraOptions) {
-    const associations = extraOptions.map(({ extraOptionId, quantity }) => ({
-      extraOptionId,
-      airportBookId: airportBook.airportBookId,
-      quantity,
-    }));
+  try {
+    let paymentDetail;
+    
+    switch (paymentMethod) {
+      case 'PRIMARY_CARD':
+        try {
+          paymentDetail = await getPrimaryCard(userId);
+        } catch (error) {
+          throw new ValidationError(error.message);
+        }
+        break;
 
-    await AirportBookExtraOption.bulkCreate(associations);
-  }
+      case 'EXISTING_CARD':
+        if (!paymentDetailId) {
+          throw new ValidationError("Payment detail ID is required for existing card");
+        }
+        try {
+          paymentDetail = await getFromExistingCards(paymentDetailId, userId);
+        } catch (error) {
+          throw new ValidationError(error.message);
+        }
+        break;
 
-  if (carId) {
-    const existingCar = await getCarById(carId);
-    await airportBook.setCar(existingCar);
+      case 'NEW_CARD':
+        if (!cardDetails) {
+          throw new ValidationError("Card details are required for new card payment");
+        }
+        
+        if (!cardDetails.creditCardNumber || !cardDetails.expirationDate || 
+            !cardDetails.securityCode || !cardDetails.zipCode || 
+            !cardDetails.cardOwnerName) {
+          throw new ValidationError("Incomplete card details provided");
+        }
+
+        try {
+          paymentDetail = await createPaymentDetail({
+            ...cardDetails,
+            userId: isGuestBooking ? null : userId
+          });
+        } catch (error) {
+          throw new ValidationError(`Failed to create payment detail: ${error.message}`);
+        }
+        break;
+
+      default:
+        throw new ValidationError("Invalid payment method");
+    }
+
+    if (!paymentDetail) {
+      throw new ValidationError("Failed to process payment details");
+    }
+
+    await airportBook.setPaymentDetail(paymentDetail);
+
+    if (carId) {
+      const existingCar = await getCarById(carId);
+      if (existingCar) {
+        await airportBook.setCar(existingCar);
+        await airportBook.reload();
+      } else {
+        throw new Error('Invalid car ID provided');
+      }
+    }
+
+    if (gratuityId) {
+      const gratuity = await getGratuityById(gratuityId);
+      if (gratuity) {
+        await airportBook.setGratuity(gratuity);
+        await airportBook.reload();
+      }
+    }
+
+    if (airportId) {
+      const existingAirport = await getAirportById(airportId);
+      if (existingAirport) {
+        await airportBook.setAirport(existingAirport);
+      }
+    }
+
+    if (pickupPreferenceId) {
+      const pickupPreference = await getAirportPickupPreferenceById(pickupPreferenceId);
+      if (pickupPreference) {
+        await airportBook.setAirportPickupPreference(pickupPreference);
+      }
+    }
+
+    if (additionalStopId) {
+      const additionalStop = await getAdditionalStopOnTheWayById(additionalStopId);
+      if (additionalStop) {
+        await airportBook.setAdditionalStopOnTheWay(additionalStop);
+      }
+    }
+
+    if (extraOptions && extraOptions.length > 0) {
+      const validExtraOptions = extraOptions.filter(option => option.extraOptionId && option.quantity);
+      if (validExtraOptions.length > 0) {
+        const associations = validExtraOptions.map(({ extraOptionId, quantity }) => ({
+          extraOptionId,
+          airportBookId: airportBook.airportBookId,
+          quantity,
+        }));
+        await AirportBookExtraOption.bulkCreate(associations);
+      }
+    }
+
+    airportBook = await getAirportBookById(airportBook.airportBookId);
+
+    const totalTripFee = await calculateAirportBookingTotalTripPrice(airportBook);
+    airportBook.totalTripFeeInDollars = totalTripFee;
     await airportBook.save();
+
+    await bookingNotification("Airport Service", airportBook);
+
+    return await getAirportBookById(airportBook.airportBookId);
+
+  } catch (error) {
+    await airportBook.destroy();
+    if (error instanceof ValidationError) {
+      throw error;
+    }
+    throw new Error(`Payment processing failed: ${error.message}`);
   }
-
-  if (gratuityId) {
-    const gratuity = await getGratuityById(gratuityId);
-    await airportBook.setGratuity(gratuity);
-    // await airportBook.save();
-  }
-
-  if (airportId) {
-    const existingAirport = await getAirportById(airportId);
-    await airportBook.setAirport(existingAirport);
-    await airportBook.save();
-  }
-
-  if (pickupPreferenceId) {
-    const pickupPreference = await getAirportPickupPreferenceById(
-      pickupPreferenceId
-    );
-    await airportBook.setAirportPickupPreference(pickupPreference);
-    await airportBook.save();
-  }
-
-  if (additionalStopId) {
-    const additionalStop = await getAdditionalStopOnTheWayById(
-      additionalStopId
-    );
-    await airportBook.setAdditionalStopOnTheWay(additionalStop);
-    await airportBook.save();
-  }
-
-  //set payment info
-  const paymentInfo = await addOrUpdatePaymentDetail(
-    creditCardNumber,
-    expirationDate,
-    securityCode,
-    zipCode,
-    cardOwnerName
-  );
-
-  await airportBook.setPaymentDetail(paymentInfo);
-  // await airportBook.save();
-
-  airportBook = await getAirportBookById(airportBook.airportBookId);
-
-  //calculate total trip fee
-  const totalTripFee = await calculateAirportBookingTotalTripPrice(airportBook);
-  airportBook.totalTripFeeInDollars = totalTripFee;
-  await airportBook.save();
-
-  //notify admin and user
-  bookingNotification("Airport Service", airportBook);
-
-  return airportBook;
 }
 
 async function updateAirportBook(airportBookId, updatedData) {
@@ -159,8 +229,8 @@ async function getAirportBooks({
 }) {
   const options = {
     order: [["createdAt", sortDirection.toUpperCase()]],
-    limit: +pageSize, // Convert pageSize to a number
-    offset: (page - 1) * +pageSize, // Convert pageSize to a number
+    limit: +pageSize,
+    offset: (page - 1) * +pageSize,
     where: {},
     attributes: { exclude: ["deletedAt"] },
   };

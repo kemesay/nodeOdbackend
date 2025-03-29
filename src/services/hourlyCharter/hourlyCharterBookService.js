@@ -7,7 +7,7 @@ const { ExtraOption } = require("../../models/ExtraOption.js");
 const { Car } = require("../../models/Car.js");
 const { Gratuity } = require("../../models/Gratuity.js");
 const { getGratuityById } = require("../booking/gratuityService.js");
-const addOrUpdatePaymentDetail = require("../paymentDetailService.js");
+const { addOrUpdatePaymentDetail, getPrimaryCard, getFromExistingCards, createPaymentDetail } = require("../paymentDetailService.js");
 const { PaymentDetail } = require("../../models/PaymentDetail.js");
 const {
   calculateHourlyCharterTotalTripPrice,
@@ -26,6 +26,10 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
     securityCode,
     zipCode,
     cardOwnerName,
+    paymentMethod,
+    paymentDetailId,
+    cardDetails,
+    isGuestBooking,
     ...otherData
   } = hourlyCharterBookData;
 
@@ -59,17 +63,49 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
     // await hourlyCharterBook.save();
   }
 
-  //set payment info
-  const paymentInfo = await addOrUpdatePaymentDetail(
-    creditCardNumber,
-    expirationDate,
-    securityCode,
-    zipCode,
-    cardOwnerName
-  );
+  // //set payment info
+  // const paymentInfo = await addOrUpdatePaymentDetail(
+  //   creditCardNumber,
+  //   expirationDate,
+  //   securityCode,
+  //   zipCode,
+  //   cardOwnerName
+  // );
 
-  await hourlyCharterBook.setPaymentDetail(paymentInfo);
+  // await hourlyCharterBook.setPaymentDetail(paymentInfo);
   // await hourlyCharterBook.save();
+
+  let paymentDetail;
+  switch (paymentMethod) {
+    case 'PRIMARY_CARD':
+      if (isGuestBooking) {
+        throw new ValidationError("Guest bookings cannot use primary card");
+      }
+      paymentDetail = await getPrimaryCard(userId);
+      if (!paymentDetail) {
+        throw new ValidationError("No primary card set for user");
+      }
+      break;
+
+    case 'EXISTING_CARD':
+      if (isGuestBooking) {
+        throw new ValidationError("Guest bookings cannot use existing cards");
+      }
+      paymentDetail = await getFromExistingCards(paymentDetailId, userId);
+      break;
+
+    case 'NEW_CARD':
+      if (!cardDetails) {
+        throw new ValidationError("Card details are required for new card payment");
+      }
+      paymentDetail = await createPaymentDetail(cardDetails, isGuestBooking ? null : userId);
+      break;
+
+    default:
+      throw new ValidationError("Invalid payment method");
+  }
+  
+  await hourlyCharterBook.setPaymentDetail(paymentDetail);
 
   hourlyCharterBook = await getHourlyCharterBookById(
     hourlyCharterBook.hourlyCharterBookId

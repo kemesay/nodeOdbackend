@@ -1,10 +1,14 @@
-class ResourceNotFoundError extends Error {
-  status;
-
-  constructor(message = "Resource not found.") {
+class ValidationError extends Error {
+  constructor(message) {
     super(message);
-    this.name = "ResourceNotFoundError";
-    this.status = 404;
+    this.name = 'ValidationError';
+  }
+}
+
+class ResourceNotFoundError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ResourceNotFoundError';
   }
 }
 
@@ -49,6 +53,7 @@ class ForbiddenError extends Error {
 }
 
 module.exports = {
+  ValidationError,
   ResourceNotFoundError,
   ConflictError,
   UnauthorizedError,

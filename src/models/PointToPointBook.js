@@ -112,6 +112,10 @@ const PointToPointBook = sequelize.define(
         len: [2, 100],
       },
     },
+    paymentMethod: {
+      type: DataTypes.ENUM("PRIMARY_CARD", "EXISTING_CARD", "NEW_CARD"),
+      allowNull: false,
+    },
     passengerCellPhone: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -255,6 +259,7 @@ function validatePointToPointBook(pointToPointBook) {
     isGuestBooking: Joi.boolean().default(false).required(),
     bookingFor: Joi.string().valid("Myself", "SomeoneElse").required(),
     passengerFullName: Joi.string().min(2).max(100).required(),
+    paymentMethod: Joi.string().valid("PRIMARY_CARD", "EXISTING_CARD", "NEW_CARD").required(),
     passengerEmail: Joi.string().email().max(255).required(),
     passengerCellPhone: Joi.string()
       .pattern(/^[0-9]{10,15}$/)

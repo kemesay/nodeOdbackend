@@ -9,7 +9,7 @@ const { Gratuity } = require("../../models/Gratuity.js");
 const { getGratuityById } = require("../booking/gratuityService.js");
 
 const { bookingNotification } = require("../../utils/emailSender");
-const addOrUpdatePaymentDetail = require("../paymentDetailService.js");
+const { addOrUpdatePaymentDetail, getPrimaryCard, getFromExistingCards, createPaymentDetail } = require("../paymentDetailService.js");
 const { PaymentDetail } = require("../../models/PaymentDetail.js");
 const {
   AdditionalStopOnTheWay,
@@ -26,12 +26,16 @@ async function createPointToPointBook(pointToPointBookData) {
     carId,
     gratuityId,
     additionalStopId,
+    paymentMethod,
+    paymentDetailId,
     extraOptions,
     creditCardNumber,
     expirationDate,
     securityCode,
     zipCode,
     cardOwnerName,
+    isGuestBooking,
+    cardDetails,
     ...otherData
   } = pointToPointBookData;
 
@@ -72,17 +76,50 @@ async function createPointToPointBook(pointToPointBookData) {
     // await pointToPointBook.save();
   }
 
-  //set payment info
-  const paymentInfo = await addOrUpdatePaymentDetail(
-    creditCardNumber,
-    expirationDate,
-    securityCode,
-    zipCode,
-    cardOwnerName
-  );
+  // //set payment info
+  // const paymentInfo = await addOrUpdatePaymentDetail(
+  //   creditCardNumber,
+  //   expirationDate,
+  //   securityCode,
+  //   zipCode,
+  //   cardOwnerName
+  // );
 
-  await pointToPointBook.setPaymentDetail(paymentInfo);
-  // await pointToPointBook.save();
+  // await pointToPointBook.setPaymentDetail(paymentInfo);
+  // // await pointToPointBook.save();
+
+  let paymentDetail;
+  switch (paymentMethod) {
+    case 'PRIMARY_CARD':
+      if (isGuestBooking) {
+        throw new ValidationError("Guest bookings cannot use primary card");
+      }
+      paymentDetail = await getPrimaryCard(userId);
+      if (!paymentDetail) {
+        throw new ValidationError("No primary card set for user");
+      }
+      break;
+
+    case 'EXISTING_CARD':
+      if (isGuestBooking) {
+        throw new ValidationError("Guest bookings cannot use existing cards");
+      }
+      paymentDetail = await getFromExistingCards(paymentDetailId, userId);
+      break;
+
+    case 'NEW_CARD':
+      if (!cardDetails) {
+        throw new ValidationError("Card details are required for new card payment");
+      }
+      paymentDetail = await createPaymentDetail(cardDetails, isGuestBooking ? null : userId);
+      break;
+
+    default:
+      throw new ValidationError("Invalid payment method");
+  }
+  
+  await pointToPointBook.setPaymentDetail(paymentDetail);
+
 
   //to get other booking related informations
   pointToPointBook = await getPointToPointBookById(

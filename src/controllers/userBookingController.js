@@ -1,5 +1,5 @@
 const {
-  searchUserBookingsByUserId,
+  searchUserBookingsByUserId, 
 } = require("../services/utilTripService.js");
 
 async function searchUserBookingsController(req, res, _next) {
@@ -7,6 +7,8 @@ async function searchUserBookingsController(req, res, _next) {
   const response = await searchUserBookingsByUserId(userId);
   return res.json(response);
 }
+
+
 
 module.exports = {
   searchUserBookingsController,

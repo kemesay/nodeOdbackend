@@ -1,8 +1,13 @@
 const { HourlyCharterBook } = require("../models/HourlyCharterBook.js");
 const { PointToPointBook } = require("../models/PointToPointBook.js");
 const { AirportBook } = require("../models/airportBooking/AirportBook.js");
+const { PaymentDetail } = require("../models/PaymentDetail.js");
 const { Car } = require("../models/Car.js");
 const { Op } = require("sequelize");
+const { Gratuity } = require("../models/Gratuity.js");
+const { AdditionalStopOnTheWay } = require("../models/booking/AdditionalStopOnTheWay.js");
+const { AirportPickupPreference } = require("../models/airportBooking/AirportPickupPreference.js");
+const { ExtraOption } = require("../models/ExtraOption.js");
 
 // Define a function to search user bookings by user ID
 async function searchUserBookingsByUserId(userId) {
@@ -36,6 +41,24 @@ async function searchUserBookingsByUserId(userId) {
     hourlyCharterBookings,
     airportBookings,
   };
+}
+
+async function getPaymentDetailByUserId(userId) {
+ const queryOptions = {
+  where: {
+    userId: userId,
+    // deletedAt: { [Op.is]: null },
+  },
+  order: [["updatedAt"]],
+  // attributes: { exclude: ["deletedAt"] },
+ };
+ 
+ const paymentDetail = await PaymentDetail.findAll(queryOptions);
+ 
+ return paymentDetail;
+ 
+ 
+ 
 }
 
 async function calculateP2PTotalTripPrice(booking) {
@@ -101,8 +124,43 @@ async function calculateHourlyCharterTotalTripPrice(booking) {
 }
 
 async function calculateAirportBookingTotalTripPrice(booking) {
+  // First, ensure we have all necessary associations loaded
+  if (!booking.Car || !booking.Gratuity) {
+    // Reload the booking with all necessary associations
+    booking = await AirportBook.findByPk(booking.airportBookId, {
+      include: [
+        {
+          model: Car,
+          attributes: ['pricePerMile', 'minimumStartFee'],
+        },
+        {
+          model: Gratuity,
+          attributes: ['percentage'],
+        },
+        {
+          model: AdditionalStopOnTheWay,
+          attributes: ['additionalStopPrice'],
+        },
+        {
+          model: AirportPickupPreference,
+          attributes: ['preferencePrice'],
+        },
+        {
+          model: ExtraOption,
+          through: {
+            attributes: ['quantity'],
+          },
+        },
+      ],
+    });
+
+    if (!booking || !booking.Car) {
+      throw new Error('Unable to calculate price: Missing required car information');
+    }
+  }
+
   const { pricePerMile, minimumStartFee } = booking.Car;
-  const percentage = booking.Gratuity.percentage;
+  const percentage = booking.Gratuity ? booking.Gratuity.percentage : 0;
 
   let carPrice =
     Number(pricePerMile * booking.distanceInMiles) + Number(minimumStartFee);
@@ -121,22 +179,19 @@ async function calculateAirportBookingTotalTripPrice(booking) {
     : 0;
 
   let extraOptionsPrice = 0;
-  if (booking.ExtraOptions) {
+  if (booking.ExtraOptions && booking.ExtraOptions.length > 0) {
     if (isRoundTrip) {
-
-        for (const extraOption of Object.values(booking.ExtraOptions)) {
-          extraOptionsPrice +=
-            extraOption.pricePerItem * extraOption.AirportBookExtraOption.quantity;
-        }
-        extraOptionsPrice *= 2;
-      }
-      else {
-        for (const extraOption of Object.values(booking.ExtraOptions)) {
-          extraOptionsPrice +=
-            extraOption.pricePerItem * extraOption.AirportBookExtraOption.quantity;
-        }
-      }
-
+      booking.ExtraOptions.forEach(extraOption => {
+        extraOptionsPrice +=
+          extraOption.pricePerItem * extraOption.AirportBookExtraOption.quantity;
+      });
+      extraOptionsPrice *= 2;
+    } else {
+      booking.ExtraOptions.forEach(extraOption => {
+        extraOptionsPrice +=
+          extraOption.pricePerItem * extraOption.AirportBookExtraOption.quantity;
+      });
+    }
   }
 
   const tripPrice =
@@ -145,7 +200,7 @@ async function calculateAirportBookingTotalTripPrice(booking) {
     Number(airportPickupPreferencePrice) +
     Number(extraOptionsPrice);
 
-  return tripPrice + tripPrice * (percentage / 100);
+  return percentage ? tripPrice + tripPrice * (percentage / 100) : tripPrice;
 }
 
 module.exports = {
@@ -153,4 +208,5 @@ module.exports = {
   calculateP2PTotalTripPrice,
   calculateHourlyCharterTotalTripPrice,
   calculateAirportBookingTotalTripPrice,
+  getPaymentDetailByUserId,
 };
