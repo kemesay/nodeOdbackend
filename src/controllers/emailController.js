@@ -74,7 +74,7 @@ const sendEmail = async (req, res) => {
           <h2 style="color: #03930A;">Thank You for Contacting Us</h2>
           <p>Dear ${from_name},</p>
           <p>Thank you for reaching out to Oda Transportation. We have received your message regarding ${service.toLowerCase()} services.</p>
-          <p>Our team will review your request and get back to you within 24 hours.</p>
+          <p>Our team will review your request and get back to you within a short period.</p>
           <p>For urgent matters, please call us at (714) 313-4269.</p>
           <div style="margin-top: 20px;">
             <p><strong>Best regards,</strong></p>
