@@ -17,6 +17,7 @@ const paymentDetailRoute = require("../routes/paymentDetailRoutes.js");
 const footerContentRoutes = require("../routes/companyInfo/footerContentRoutes.js");
 const socialMediaRoutes = require("../routes/companyInfo/socialMediaRoutes.js");
 const gratuityRoutes = require("../routes/gratuityRoutes.js");
+const emailMessage = require("../routes/emialRoutes.js")
 
 module.exports = function setupRoutes(app) {
   app.use(json());
@@ -26,6 +27,8 @@ module.exports = function setupRoutes(app) {
   app.use("/api/v1/popular-places", popularPlaceRoutes);
   app.use("/api/v1/extra-options", extraOptions);
   app.use("/api/v1/gratuities", gratuityRoutes);
+
+  app.use("/api/v1/email", emailMessage)
 
   app.use("/api/v1/additional-stops", additionalStopOnTheWay);
   app.use("/api/v1/airports", airports);
