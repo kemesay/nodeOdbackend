@@ -11,6 +11,63 @@ const transporter = nodemailer.createTransport({
     },
 });
 
+// Create reusable logo header component
+const createLogoHeader = () => `
+    <div style="text-align: center; padding: 32px 0; background-color: #ffffff; margin-bottom: 20px; border-bottom: 2px solid #f0f0f0;">
+        <img src="https://odatransportation.com/static/media/ODA_Primary%20Logo.6715e0b164c507dbe1f2.png" 
+             alt="ODA Transportation Logo" 
+             style="max-width: 200px; height: auto;" />
+    </div>
+`;
+
+// Create reusable logo header component with stamp effect
+// const createLogoHeader = () => `
+//     <div style="text-align: center; padding: 32px 0; background-color: #ffffff; margin-bottom: 20px;">
+//         <div style="
+//             display: inline-block;
+//             padding: 8px;
+//             border-radius: 50%;
+//             background: linear-gradient(45deg, #f8f9fa, #ffffff);
+//             box-shadow: 0 2px 15px rgba(0, 0, 0, 0.1);
+//             position: relative;
+//             transform: rotate(-5deg);
+//         ">
+//             <img src="https://odatransportation.com/static/media/ODA_Primary%20Logo.6715e0b164c507dbe1f2.png" 
+//                  alt="ODA Transportation Logo" 
+//                  style="
+//                     width: 120px;
+//                     height: 120px;
+//                     object-fit: contain;
+//                     border-radius: 50%;
+//                     padding: 10px;
+//                     background-color: white;
+//                  " 
+//             />
+//             <div style="
+//                 position: absolute;
+//                 top: -2px;
+//                 left: -2px;
+//                 right: -2px;
+//                 bottom: -2px;
+//                 border: 2px dashed #03930A;
+//                 border-radius: 50%;
+//                 opacity: 0.5;
+//             "></div>
+//         </div>
+//         <div style="
+//             width: 100%;
+//             height: 2px;
+//             background: linear-gradient(90deg, 
+//                 transparent 0%, 
+//                 #03930A 15%, 
+//                 #03930A 85%, 
+//                 transparent 100%
+//             );
+//             margin-top: 20px;
+//         "></div>
+//     </div>
+// `;
+
 const sendEmail = async (req, res) => {
     try {
         const {
@@ -23,20 +80,23 @@ const sendEmail = async (req, res) => {
             to_email
         } = req.body;
 
-        // Create email HTML template
+        // Create email HTML template with logo
         const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #03930A;">New Contact Form Submission</h2>
-        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px;">
-          <p><strong>From:</strong> ${from_name}</p>
-          <p><strong>Email:</strong> ${from_email}</p>
-          <p><strong>Phone:</strong> ${from_phone}</p>
-          <p><strong>Service Requested:</strong> ${service}</p>
-          <h3>Message:</h3>
-          <p style="white-space: pre-wrap;">${message}</p>
-        </div>
-        <div style="margin-top: 20px; font-size: 12px; color: #666;">
-          <p>This email was sent from the Oda Transportation contact form.</p>
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 10px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
+        ${createLogoHeader()}
+        <div style="padding: 0 20px 20px;">
+          <h2 style="color: #03930A; text-align: center; margin-bottom: 30px;">New Contact Form Submission</h2>
+          <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px;">
+            <p style="margin: 10px 0;"><strong>From:</strong> ${from_name}</p>
+            <p style="margin: 10px 0;"><strong>Email:</strong> ${from_email}</p>
+            <p style="margin: 10px 0;"><strong>Phone:</strong> ${from_phone}</p>
+            <p style="margin: 10px 0;"><strong>Service Requested:</strong> ${service}</p>
+            <h3 style="color: #03930A; margin-top: 20px;">Message:</h3>
+            <p style="white-space: pre-wrap; margin: 10px 0;">${message}</p>
+          </div>
+          <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; text-align: center;">
+            <p>This email was sent from the Oda Transportation contact form.</p>
+          </div>
         </div>
       </div>
     `;
@@ -61,6 +121,33 @@ const sendEmail = async (req, res) => {
         // Send email
         await transporter.sendMail(mailOptions);
 
+        // Create auto-reply template with logo
+        const autoReplyHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 10px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
+          ${createLogoHeader()}
+          <div style="padding: 0 20px 20px;">
+            <h2 style="color: #03930A; text-align: center; margin-bottom: 30px;">Thank You for Contacting Us</h2>
+            <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px;">
+              <p style="margin: 10px 0;">Dear ${from_name},</p>
+              <p style="margin: 10px 0;">Thank you for reaching out to Oda Transportation. We have received your message regarding ${service.toLowerCase()} services.</p>
+              <p style="margin: 10px 0;">Our team will review your request and get back to you within a short period.</p>
+              <p style="margin: 20px 0; padding: 15px; background-color: #e8f5e9; border-radius: 5px; text-align: center;">
+                <strong>For urgent matters, please call us at (714) 313-4269</strong>
+              </p>
+            </div>
+            <div style="margin-top: 30px; text-align: center;">
+              <p style="margin: 5px 0;"><strong>Best regards,</strong></p>
+              <p style="margin: 5px 0; color: #03930A;">Oda Transportation Team</p>
+            </div>
+            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; text-align: center;">
+              <a href="https://odatransportation.com" style="color: #03930A; text-decoration: none;">
+                www.odatransportation.com
+              </a>
+            </div>
+          </div>
+        </div>
+      `;
+
         // Send auto-reply to customer
         const autoReplyOptions = {
             from: {
@@ -69,19 +156,7 @@ const sendEmail = async (req, res) => {
             },
             to: from_email,
             subject: 'Thank you for contacting Oda Transportation',
-            html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #03930A;">Thank You for Contacting Us</h2>
-          <p>Dear ${from_name},</p>
-          <p>Thank you for reaching out to Oda Transportation. We have received your message regarding ${service.toLowerCase()} services.</p>
-          <p>Our team will review your request and get back to you within a short period.</p>
-          <p>For urgent matters, please call us at (714) 313-4269.</p>
-          <div style="margin-top: 20px;">
-            <p><strong>Best regards,</strong></p>
-            <p>Oda Transportation Team</p>
-          </div>
-        </div>
-      `
+            html: autoReplyHtml
         };
 
         await transporter.sendMail(autoReplyOptions);

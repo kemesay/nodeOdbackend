@@ -27,9 +27,7 @@ module.exports = function setupRoutes(app) {
   app.use("/api/v1/popular-places", popularPlaceRoutes);
   app.use("/api/v1/extra-options", extraOptions);
   app.use("/api/v1/gratuities", gratuityRoutes);
-
-  app.use("/api/v1/email", emailMessage)
-
+  app.use("/api/v1/email", emailMessage);
   app.use("/api/v1/additional-stops", additionalStopOnTheWay);
   app.use("/api/v1/airports", airports);
   app.use("/api/v1/airport/pickup-preference", airportPickupPreference);
