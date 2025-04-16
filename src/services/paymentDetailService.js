@@ -1,3 +1,4 @@
+const { sequelize } = require("../config/database"); // Adjust path as needed
 const { Op } = require("sequelize");
 const { PaymentDetail } = require("../models/PaymentDetail.js");
 const { ValidationError, ResourceNotFoundError } = require("../errors/CustomErrors.js");
@@ -62,43 +63,120 @@ async function getPaymentDetail(creditCardNumber, expirationDate, securityCode, 
   return paymentDetail;
 }
 
-async function createPaymentDetail(cardDetails) {
-  try {
-    // If this is marked as primary, unset any existing primary cards for this user
-    if (cardDetails.isPrimary && cardDetails.userId) {
-      await PaymentDetail.update(
-        { isPrimary: false },
-        {
-          where: {
-            userId: cardDetails.userId,
-            isPrimary: true
-          }
-        }
-      );
-    }
-
-    const paymentDetail = await PaymentDetail.create({
+async function findExistingCard(cardDetails) {
+  return await PaymentDetail.findOne({
+    where: {
       creditCardNumber: cardDetails.creditCardNumber,
       expirationDate: cardDetails.expirationDate,
       securityCode: cardDetails.securityCode,
       zipCode: cardDetails.zipCode,
       cardOwnerName: cardDetails.cardOwnerName,
-      userId: cardDetails.userId || null,
-      isPrimary: cardDetails.isPrimary || false
-    });
+      userId: cardDetails.userId || null
+    }
+  });
+}
 
-    return paymentDetail;
-  } catch (error) {
-    throw new Error(`Failed to create payment detail: ${error.message}`);
+
+async function handlePrimaryCardUpdate(userId, newPrimaryId = null) {
+  if (!userId) return;
+  
+  // Find current primary card
+  const currentPrimary = await PaymentDetail.findOne({
+    where: {
+      userId,
+      isPrimary: true
+    }
+  });
+
+  // If there's a current primary card and it's not the new one being set
+  if (currentPrimary && (!newPrimaryId || currentPrimary.paymentDetailId !== newPrimaryId)) {
+    await currentPrimary.update({ isPrimary: false });
   }
 }
+
+// async function createPaymentDetail(cardDetails) {
+//   try {
+//     // If this is marked as primary, unset any existing primary cards for this user
+//     if (cardDetails.isPrimary && cardDetails.userId) {
+//       await PaymentDetail.update(
+//         { isPrimary: false },
+//         {
+//           where: {
+//             userId: cardDetails.userId,
+//             isPrimary: true
+//           }
+//         }
+//       );
+//     }
+
+//     const paymentDetail = await PaymentDetail.create({
+//       creditCardNumber: cardDetails.creditCardNumber,
+//       expirationDate: cardDetails.expirationDate,
+//       securityCode: cardDetails.securityCode,
+//       zipCode: cardDetails.zipCode,
+//       cardOwnerName: cardDetails.cardOwnerName,
+//       userId: cardDetails.userId || null,
+//       isPrimary: cardDetails.isPrimary || false
+//     });
+
+//     return paymentDetail;
+//   } catch (error) {
+//     throw new Error(`Failed to create payment detail: ${error.message}`);
+//   }
+// }
+
+async function createPaymentDetail(cardDetails) {
+  // Check if identical card already exists
+  const existingCard = await findExistingCard(cardDetails);
+  if (existingCard) {
+    // Update existing card instead of creating new one
+    return await updatePaymentDetail(existingCard.paymentDetailId, cardDetails);
+  }
+
+  // Handle primary card logic
+  if (cardDetails.isPrimary && cardDetails.userId) {
+    await handlePrimaryCardUpdate(cardDetails.userId);
+  }
+
+  const paymentDetail = await PaymentDetail.create({
+    creditCardNumber: cardDetails.creditCardNumber,
+    expirationDate: cardDetails.expirationDate,
+    securityCode: cardDetails.securityCode,
+    zipCode: cardDetails.zipCode,
+    cardOwnerName: cardDetails.cardOwnerName,
+    userId: cardDetails.userId || null,
+    isPrimary: cardDetails.isPrimary || false
+  });
+
+  return paymentDetail;
+}
+
+// async function updatePaymentDetail(paymentDetailId, paymentDetailData) {
+//   const paymentDetail = await getPaymentDetailById(paymentDetailId);
+//   if (!paymentDetail) {
+//     throw new Error("Payment detail  with id ${paymentDetailId} not found");
+//   }
+//    return  await paymentDetail.update(paymentDetailData);
+// }
 
 async function updatePaymentDetail(paymentDetailId, paymentDetailData) {
   const paymentDetail = await getPaymentDetailById(paymentDetailId);
   if (!paymentDetail) {
-    throw new Error("Payment detail  with id ${paymentDetailId} not found");
+    throw new ResourceNotFoundError(`Payment detail with id ${paymentDetailId} not found`);
   }
-   return  await paymentDetail.update(paymentDetailData);
+
+  // Check if identical card already exists elsewhere
+  const existingCard = await findExistingCard(paymentDetailData);
+  if (existingCard && existingCard.paymentDetailId !== paymentDetailId) {
+    throw new ValidationError("This card already exists in the system");
+  }
+
+  // Handle primary card logic
+  if (paymentDetailData.isPrimary && paymentDetail.userId) {
+    await handlePrimaryCardUpdate(paymentDetail.userId, paymentDetailId);
+  }
+
+  return await paymentDetail.update(paymentDetailData);
 }
 async function getPaymentDetails({
   page = 1,
@@ -165,7 +243,42 @@ async function getFromExistingCards(paymentDetailId, userId) {
   return card;
 }
 
+async function setPrimaryCard(paymentDetailId, userId) {
+  const transaction = await sequelize.transaction();
+  try {
+    // 1. Get the card to be set as primary
+    const cardToSetPrimary = await PaymentDetail.findOne({
+      where: { paymentDetailId, userId },
+      transaction
+    });
 
+    if (!cardToSetPrimary) {
+      throw new ResourceNotFoundError("Card not found or unauthorized access");
+    }
+
+    // 2. Find current primary card (if any)
+    const currentPrimaryCard = await PaymentDetail.findOne({
+      where: { userId, isPrimary: true, paymentDetailId: { [Op.ne]: paymentDetailId } },
+      transaction
+    });
+
+    // 3. Unset current primary if exists
+    if (currentPrimaryCard) {
+      await currentPrimaryCard.update({ isPrimary: false }, { transaction });
+    }
+
+    // 4. Set new primary card
+    await cardToSetPrimary.update({ isPrimary: true }, { transaction });
+
+    // Commit transaction
+    await transaction.commit();
+
+    return cardToSetPrimary;
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
 
 module.exports = {
   addOrUpdatePaymentDetail,
@@ -177,4 +290,5 @@ module.exports = {
   deletePaymentDetail,
   getPrimaryCard,
   getFromExistingCards,
+  setPrimaryCard
 };

@@ -19,6 +19,8 @@ const {
 const admin = require("../middleware/admin.js");
 const auth = require("../middleware/auth.js");
 const validate = require("../middleware/validateReqBody.js");
+const { getHourlyCharterBookById } = require("../services/hourlyCharter/hourlyCharterBookService.js");
+const { calculateHourlyCharterTotalTripPrice } = require("../services/utilTripService.js");
 
 const router = express.Router();
 
@@ -50,4 +52,27 @@ router.put(
   updateBookingStatusController
 );
 
+
+router.patch("/:hourlyCharterBookId/associations", [auth], async (req, res) => {
+  const hourlyCharterBookId = req.params.hourlyCharterBookId;
+  const updates = req.body;
+  
+  try {
+    const hourlyCharterBook = await getHourlyCharterBookById(hourlyCharterBookId);
+    
+    // Update associations based on provided data
+    if (updates.paymentDetailId) await hourlyCharterBook.setPaymentDetail(updates.paymentDetailId);
+    if (updates.carId) await hourlyCharterBook.setCar(updates.carId);
+    if (updates.gratuityId) await hourlyCharterBook.setGratuity(updates.gratuityId);
+    
+    // Recalculate total trip fee
+    const totalTripFee = await calculateHourlyCharterTotalTripPrice(hourlyCharterBook);
+    hourlyCharterBook.totalTripFeeInDollars = totalTripFee;
+    await hourlyCharterBook.save();
+    
+    return res.json(await getHourlyCharterBookById(hourlyCharterBookId));
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
 module.exports = router;

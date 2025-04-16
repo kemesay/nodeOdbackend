@@ -10,6 +10,7 @@ const {
   getPaymentDetailByIdController,
   deletePaymentDetailController,
   getPaymentDetailByUserIdController,
+  setPrimaryCardController,
 } = require("../controllers/paymentDetailController.js");
 
 const { validatePaymentDetail } = require("../models/PaymentDetail.js");
@@ -55,6 +56,10 @@ router.get(
 );
 
 router.delete("/:paymentDetailId", [auth, admin], deletePaymentDetailController);
-
+router.patch(
+  "/:paymentDetailId/set-primary",
+  auth,
+  setPrimaryCardController
+);
 
 module.exports = router;

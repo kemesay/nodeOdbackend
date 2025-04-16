@@ -13,14 +13,44 @@ const authenticateToken = require("../utils/getUserFromToken.js");
 
 async function createPointToPointBookController(req, res, _next) {
   const tokenHeader = req.header("Authorization");
-  let user;
-  if (tokenHeader) {
-    user = await authenticateToken(tokenHeader);
-    req.body.userId = user.userId;
+  const { paymentMethod, isGuestBooking } = req.body;
+  // Check if payment method requires authentication
+  if ((paymentMethod === 'PRIMARY_CARD' || paymentMethod === 'EXISTING_CARD')) {
+    if (!tokenHeader) {
+      return res.status(401).json({ 
+        error: "Authentication required for using saved payment methods" 
+      });
+    }
+
+    try {
+      const user = await authenticateToken(tokenHeader);
+      req.body.userId = user.userId;
+    } catch (error) {
+      return res.status(401).json({ 
+        error: "Invalid authentication token" 
+      });
+    }
+  } else if (!isGuestBooking && tokenHeader) {
+    // If user is logged in but using NEW_CARD, still attach userId
+    try {
+      const user = await authenticateToken(tokenHeader);
+      req.body.userId = user.userId;
+    } catch (error) {
+      // Ignore token error for NEW_CARD as it's optional
+      console.log("Invalid token for NEW_CARD payment, continuing as guest");
+    }
   }
+
+ try {
 
   const pointToPointBook = await createPointToPointBook(req.body);
   return res.status(201).json(pointToPointBook);
+
+ }catch (error) {
+  return res.status(400).json({ 
+    error: error.message 
+  })
+}
 }
 
 async function updatePointToPointBookController(req, res, _next) {

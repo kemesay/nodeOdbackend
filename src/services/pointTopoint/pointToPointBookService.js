@@ -1,4 +1,4 @@
-const { Op } = require("sequelize");
+const { Op, ValidationError } = require("sequelize");
 const { PointToPointBook } = require("../../models/PointToPointBook.js");
 const { ResourceNotFoundError } = require("../../errors/CustomErrors.js");
 const { getCarById } = require("../booking/carService.js");
@@ -20,6 +20,7 @@ const {
 
 const { calculateP2PTotalTripPrice } = require("../utilTripService.js");
 const generateConfirmationNumber = require("../bookingUtils.js");
+const { AirportBook } = require("../../models/airportBooking/AirportBook.js");
 
 async function createPointToPointBook(pointToPointBookData) {
   const {
@@ -29,12 +30,8 @@ async function createPointToPointBook(pointToPointBookData) {
     paymentMethod,
     paymentDetailId,
     extraOptions,
-    creditCardNumber,
-    expirationDate,
-    securityCode,
-    zipCode,
-    cardOwnerName,
     isGuestBooking,
+    userId,
     cardDetails,
     ...otherData
   } = pointToPointBookData;
@@ -43,84 +40,105 @@ async function createPointToPointBook(pointToPointBookData) {
 
   let pointToPointBook = await PointToPointBook.create({
     confirmationNumber,
-    ...otherData,
+    paymentMethod,
+    bookingStatus: 'PENDING_APPROVAL',
+    paymentStatus: 'NOT_PAID',
+    isGuestBooking: isGuestBooking || false,
+    userId,
+    ...otherData
   });
 
-  if (extraOptions) {
-    const associations = extraOptions.map(({ extraOptionId, quantity }) => ({
-      extraOptionId,
-      pointToPointBookId: pointToPointBook.pointToPointBookId,
-      quantity,
-    }));
+  try {
+    let paymentDetail;
 
-    await PointToPointBookExtraOption.bulkCreate(associations);
-  }
+    switch (paymentMethod) {
+      case 'PRIMARY_CARD':
+        try {
+          paymentDetail = await getPrimaryCard(userId);
+        } catch (error) {
+          throw new ValidationError(error.message);
+        }
+        break;
+
+      case 'EXISTING_CARD':
+        if (!paymentDetailId) {
+          throw new ValidationError("Payment detail ID is required for existing card");
+        }
+        try {
+          paymentDetail = await getFromExistingCards(paymentDetailId, userId);
+        } catch (error) {
+          throw new ValidationError(error.message);
+        }
+        break;
+
+      case 'NEW_CARD':
+        if (!cardDetails) {
+          throw new ValidationError("Card details are required for new card payment");
+        }
+
+        if (!cardDetails.creditCardNumber || !cardDetails.expirationDate ||
+          !cardDetails.securityCode || !cardDetails.zipCode ||
+          !cardDetails.cardOwnerName) {
+          throw new ValidationError("Incomplete card details provided");
+        }
+
+        try {
+          paymentDetail = await createPaymentDetail({
+            ...cardDetails,
+            userId: isGuestBooking ? null : userId
+          });
+        } catch (error) {
+          throw new ValidationError(`Failed to create payment detail: ${error.message}`);
+        }
+        break;
+
+      default:
+        throw new ValidationError("Invalid payment method");
+    }
+
+    if (!paymentDetail) {
+      throw new ValidationError("Failed to process payment details");
+    }
+    
+    await pointToPointBook.setPaymentDetail(paymentDetail);
+
 
   if (carId) {
     const existingCar = await getCarById(carId);
-    await pointToPointBook.setCar(existingCar);
-    // await pointToPointBook.save();
+    if (existingCar) {
+      await pointToPointBook.setCar(existingCar);
+      await pointToPointBook.reload();
+    } else {
+      throw new Error('Invalid car ID provided');
+    }
   }
 
   if (gratuityId) {
     const gratuity = await getGratuityById(gratuityId);
-    await pointToPointBook.setGratuity(gratuity);
-    // await pointToPointBook.save();
+    if (gratuity) {
+      await pointToPointBook.setGratuity(gratuity);
+      await pointToPointBook.reload();
+    }
   }
-
   if (additionalStopId) {
-    const additionalStop = await getAdditionalStopOnTheWayById(
-      additionalStopId
-    );
-    await pointToPointBook.setAdditionalStopOnTheWay(additionalStop);
-    // await pointToPointBook.save();
+    const additionalStop = await getAdditionalStopOnTheWayById(additionalStopId);
+    if (additionalStop) {
+      await pointToPointBook.setAdditionalStopOnTheWay(additionalStop);
+    }
   }
 
-  // //set payment info
-  // const paymentInfo = await addOrUpdatePaymentDetail(
-  //   creditCardNumber,
-  //   expirationDate,
-  //   securityCode,
-  //   zipCode,
-  //   cardOwnerName
-  // );
-
-  // await pointToPointBook.setPaymentDetail(paymentInfo);
-  // // await pointToPointBook.save();
-
-  let paymentDetail;
-  switch (paymentMethod) {
-    case 'PRIMARY_CARD':
-      if (isGuestBooking) {
-        throw new ValidationError("Guest bookings cannot use primary card");
-      }
-      paymentDetail = await getPrimaryCard(userId);
-      if (!paymentDetail) {
-        throw new ValidationError("No primary card set for user");
-      }
-      break;
-
-    case 'EXISTING_CARD':
-      if (isGuestBooking) {
-        throw new ValidationError("Guest bookings cannot use existing cards");
-      }
-      paymentDetail = await getFromExistingCards(paymentDetailId, userId);
-      break;
-
-    case 'NEW_CARD':
-      if (!cardDetails) {
-        throw new ValidationError("Card details are required for new card payment");
-      }
-      paymentDetail = await createPaymentDetail(cardDetails, isGuestBooking ? null : userId);
-      break;
-
-    default:
-      throw new ValidationError("Invalid payment method");
+  if (extraOptions && extraOptions.length > 0) {
+    const validExtraOptions = extraOptions.filter(option => option.extraOptionId && option.quantity);
+    if (validExtraOptions.length > 0) {
+      const associations = validExtraOptions.map(({ extraOptionId, quantity }) => ({
+        extraOptionId,
+        pointToPointBookId: pointToPointBook.pointToPointBookId,
+        quantity,
+      }));
+      await PointToPointBookExtraOption.bulkCreate(associations);
+    }
   }
   
-  await pointToPointBook.setPaymentDetail(paymentDetail);
-
-
   //to get other booking related informations
   pointToPointBook = await getPointToPointBookById(
     pointToPointBook.pointToPointBookId
@@ -132,9 +150,16 @@ async function createPointToPointBook(pointToPointBookData) {
   pointToPointBook = await pointToPointBook.save();
 
   //notify admin and user
-  bookingNotification("Point to point", pointToPointBook);
+  bookingNotification("Point to point service", pointToPointBook);
 
-  return pointToPointBook;
+  return  await getPointToPointBookById(pointToPointBook.pointToPointBookId);
+}
+catch(error){
+if (error instanceof ValidationError){
+  throw error;
+}
+throw new Error (`payment processing failed: ${error.message}`);
+}
 }
 
 async function updatePointToPointBook(pointToPointBookId, updatedData) {

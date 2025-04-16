@@ -173,7 +173,10 @@ const HourlyCharterBook = sequelize.define(
 );
 
 // Define association with PaymentDetail model
-HourlyCharterBook.belongsTo(PaymentDetail, { foreignKey: "paymentDetailId" });
+HourlyCharterBook.belongsTo(PaymentDetail, { 
+  foreignKey: "paymentDetailId" ,
+  targetKey: "paymentDetailId"
+});
 
 // Define association with User model
 HourlyCharterBook.belongsTo(User, { foreignKey: "userId" });
@@ -197,6 +200,37 @@ ExtraOption.belongsToMany(HourlyCharterBook, {
   foreignKey: "extraOptionId",
   otherKey: "hourlyCharterBookId",
   uniqueKey: "book_extra_options_unique",
+});
+
+const cardDetailsSchema = Joi.object({
+  creditCardNumber: Joi.string()
+    .pattern(/^[0-9]{16}$/)
+    .required()
+    .messages({
+      'string.pattern.base': 'Credit card number must be 16 digits'
+    }),
+  expirationDate: Joi.string()
+    .pattern(/^(0[1-9]|1[0-2])\/([0-9]{2})$/)
+    .required()
+    .messages({
+      'string.pattern.base': 'Expiration date must be in MM/YY format'
+    }),
+  securityCode: Joi.string()
+    .pattern(/^[0-9]{3,4}$/)
+    .required()
+    .messages({
+      'string.pattern.base': 'Security code must be 3 or 4 digits'
+    }),
+  zipCode: Joi.string()
+    .pattern(/^[0-9]{5}(?:-[0-9]{4})?$/)
+    .required()
+    .messages({
+      'string.pattern.base': 'Invalid ZIP code format'
+    }),
+  cardOwnerName: Joi.string()
+    .min(2)
+    .max(100)
+    .required()
 });
 
 function validateHourlyCharterBook(hourlyCharterBook) {
@@ -223,7 +257,9 @@ function validateHourlyCharterBook(hourlyCharterBook) {
     isGuestBooking: Joi.boolean().default(false).required(),
     bookingFor: Joi.string().valid("Myself", "SomeoneElse").required(),
     passengerFullName: Joi.string().min(2).max(100).required(),
-    paymentMethod: Joi.string().valid("PRIMARY_CARD", "EXISTING_CARD", "NEW_CARD").required(),
+    paymentMethod: Joi.string()
+      .valid("PRIMARY_CARD", "EXISTING_CARD", "NEW_CARD")
+      .default("NEW_CARD"),
     passengerEmail: Joi.string().email().max(255).required(),
     passengerCellPhone: Joi.string()
       .pattern(/^[0-9]{10,15}$/)
@@ -231,46 +267,16 @@ function validateHourlyCharterBook(hourlyCharterBook) {
       .required(),
 
     //Payment info
-    creditCardNumber: Joi.string()
-      .creditCard()
-      .custom((value, helpers) => {
-        if (testCards.includes(value.replace(/\s/g, ""))) {
-          return helpers.message("Test card is not allowed");
-        }
-        return value;
-      })
-      .required()
-      .messages(creditCardNumberMessage),
-
-    expirationDate: Joi.string()
-      .pattern(/^\d{2}\/\d{2}$/) // MM/YYYY format
-      .required()
-      .messages(expirationDateMessage),
-
-    securityCode: Joi.string()
-      .pattern(/^\d+$/) // Only digits
-      .min(3) // Minimum length for most cards
-      .max(4) // Maximum length for American Express
-      .required()
-      .messages(securityCodeMessage),
-
-    zipCode: Joi.string()
-      .pattern(/^\d{5}(-\d{4})?$/) // US zip code format
-      .required()
-      .messages({
-        "string.pattern.base":
-          "Zip code must be in the format 12345 or 12345-6789",
-        "any.required": "Zip code is required",
-      }),
-
-    cardOwnerName: Joi.string().min(2).max(50).required().messages({
-      "string.base": "Card owner name must be a string",
-      "string.empty": "Card owner name is required",
-      "string.min": "Card owner name must be at least 2 characters long",
-      "string.max":
-        "Card owner name must be less than or equal to 50 characters",
-      "any.required": "Card owner name is required",
+    cardDetails: Joi.when('paymentMethod', {
+      is: 'NEW_CARD',
+      then: cardDetailsSchema.required(),
+      otherwise: Joi.forbidden()
     }),
+    paymentDetailId: Joi.when('paymentMethod', {
+      is: 'EXISTING_CARD',
+      then: Joi.number().required(),
+      otherwise: Joi.forbidden()
+    })
   });
 
   return schema.validate(hourlyCharterBook);

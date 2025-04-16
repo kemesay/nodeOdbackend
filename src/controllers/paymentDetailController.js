@@ -9,12 +9,14 @@ const {
   getPaymentDetails,
   getPaymentDetailById,
   deletePaymentDetail,
+  setPrimaryCard,
+  getFromExistingCards
 } = require("../services/paymentDetailService.js");
 const {
   getPaymentDetailByUserId,
 } = require("../services/utilTripService.js");
 
-async function validatePaymentDetailController(req, res, _next) {
+async function validatePaymentDetailController(req, res, next) {
   try {
     const tokenHeader = req.header("Authorization");
     let user;
@@ -26,19 +28,38 @@ async function validatePaymentDetailController(req, res, _next) {
     // First validate the card
     const validationResponse = successResponse("Card validated successfully");
 
-    // Then save the payment details
+    // Then save/update the payment details
     const paymentDetail = await createPaymentDetail(req.body);
 
-    // Return both validation and payment detail information
     return res.status(201).json({
       ...validationResponse,
       paymentDetail
     });
   } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: error.message
+    next(error);
+  }
+}
+async function setPrimaryCardController(req, res, next) {
+  try {
+    const { paymentDetailId } = req.params;
+    const tokenHeader = req.header("Authorization");
+    const user = await authenticateToken(tokenHeader);
+
+    const updatedCard = await setPrimaryCard(paymentDetailId, user.userId);
+
+    return res.status(200).json({
+      success: true,
+      message: "Primary card updated successfully",
+      card: {
+        paymentDetailId: updatedCard.paymentDetailId,
+        lastFourDigits: updatedCard.creditCardNumber.slice(-4),
+        cardOwnerName: updatedCard.cardOwnerName,
+        isPrimary: updatedCard.isPrimary,
+        expirationDate: updatedCard.expirationDate
+      }
     });
+  } catch (error) {
+    next(error);
   }
 }
 
@@ -103,4 +124,5 @@ module.exports = {
   getPaymentDetailByIdController,
   getPaymentDetailByUserIdController,
   deletePaymentDetailController,
+  setPrimaryCardController
 };

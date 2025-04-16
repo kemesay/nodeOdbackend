@@ -71,7 +71,7 @@ async function createAirportBook(airportBookData) {
 
   try {
     let paymentDetail;
-    
+
     switch (paymentMethod) {
       case 'PRIMARY_CARD':
         try {
@@ -96,10 +96,10 @@ async function createAirportBook(airportBookData) {
         if (!cardDetails) {
           throw new ValidationError("Card details are required for new card payment");
         }
-        
-        if (!cardDetails.creditCardNumber || !cardDetails.expirationDate || 
-            !cardDetails.securityCode || !cardDetails.zipCode || 
-            !cardDetails.cardOwnerName) {
+
+        if (!cardDetails.creditCardNumber || !cardDetails.expirationDate ||
+          !cardDetails.securityCode || !cardDetails.zipCode ||
+          !cardDetails.cardOwnerName) {
           throw new ValidationError("Incomplete card details provided");
         }
 
