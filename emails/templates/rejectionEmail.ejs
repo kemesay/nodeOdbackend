@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,31 +8,50 @@
     <style>
         /* Header styling */
         .header {
-            background-color: #4CAF50; /* Green branding color */
+            background-color: #4CAF50;
+            /* Green branding color */
             color: white;
             padding: 20px;
             text-align: center;
         }
     </style>
 </head>
+
 <body>
-    <div class="header">
-        <h1>Airline Name</h1>
+    <div class="container">
+        <div
+            style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 10px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
+
+            <div style="text-align: center; padding: 32px 0; background-color: #ffffff; margin-bottom: 20px; border-bottom: 2px solid #f0f0f0;">
+                <img src="https://odatransportation.com/static/media/ODA_Primary%20Logo.6715e0b164c507dbe1f2.png" 
+                     alt="ODA Transportation Logo" 
+                     style="max-width: 200px; height: auto;" />
+            </div>
+            <div class="header">
+                <h1>Airline Name</h1>
+            </div>
+
+            <p>Dear <%= recipientName %>,</p>
+
+            <p>We regret to inform you that your <%= airPointType %> request has been rejected due to the following
+                    reasons:</p>
+
+            <p>
+                <% reasons.forEach((reason, index)=> { %>
+                    <%= reason %>
+                        <%= index !==reasons.length - 1 ? ', ' : '' %>
+                            <% }); %>
+            </p>
+
+            <p>Please review your account status and criteria for redemption eligibility. Feel free to contact us for
+                further assistance.</p>
+
+            <p>Sincerely,<br>
+                [Your Airline's Name]</p>
+                
+
+        </div>
     </div>
-
-    <p>Dear <%= recipientName %>,</p>
-
-    <p>We regret to inform you that your <%= airPointType %> request has been rejected due to the following reasons:</p>
-
-    <p>
-        <% reasons.forEach((reason, index) => { %>
-            <%= reason %><%= index !== reasons.length - 1 ? ', ' : '' %>
-        <% }); %>
-    </p>
-
-    <p>Please review your account status and criteria for redemption eligibility. Feel free to contact us for further assistance.</p>
-
-    <p>Sincerely,<br>
-    [Your Airline's Name]</p>
 </body>
+
 </html>
