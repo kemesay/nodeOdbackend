@@ -118,7 +118,10 @@ async function calculateHourlyCharterTotalTripPrice(booking) {
   }
 
   const tripPrice =
-    Number(minimumStartFee) + Number(carPrice) + Number(extraOptionsPrice);
+    // Number(minimumStartFee) + Number(carPrice) + Number(extraOptionsPrice);
+
+   Number(carPrice) + Number(extraOptionsPrice);
+
 
   return tripPrice + tripPrice * (percentage / 100);
 }

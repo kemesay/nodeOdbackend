@@ -47,15 +47,15 @@ async function createAirportBook(airportBookData) {
     ...otherData
   } = airportBookData;
 
-  if (!paymentMethod) {
-    throw new ValidationError("Payment method is required");
-  }
+  // if (!paymentMethod) {
+  //   throw new ValidationError("Payment method is required");
+  // }
 
-  if ((paymentMethod === 'PRIMARY_CARD' || paymentMethod === 'EXISTING_CARD')) {
-    if (!userId) {
-      throw new ValidationError("User authentication required for saved payment methods");
-    }
-  }
+  // if ((paymentMethod === 'PRIMARY_CARD' || paymentMethod === 'EXISTING_CARD')) {
+  //   if (!userId) {
+  //     throw new ValidationError("User authentication required for saved payment methods");
+  //   }
+  // }
 
   const confirmationNumber = await generateConfirmationNumber();
 

@@ -204,33 +204,63 @@ ExtraOption.belongsToMany(HourlyCharterBook, {
 
 const cardDetailsSchema = Joi.object({
   creditCardNumber: Joi.string()
-    .pattern(/^[0-9]{16}$/)
+    .creditCard()
     .required()
     .messages({
-      'string.pattern.base': 'Credit card number must be 16 digits'
+      'string.creditCard': 'Invalid credit card number',
+      'any.required': 'Credit card number is required'
     }),
   expirationDate: Joi.string()
     .pattern(/^(0[1-9]|1[0-2])\/([0-9]{2})$/)
     .required()
+    .custom((value, helpers) => {
+      const [month, year] = value.split('/');
+      const currentYear = new Date().getFullYear() % 100;
+      const currentMonth = new Date().getMonth() + 1;
+      
+      // Convert YY to full year (2000 + YY)
+      const fullYear = 2000 + parseInt(year, 10);
+      
+      // Check if expiration date is in the future
+      if (
+        fullYear < new Date().getFullYear() || 
+        (fullYear === new Date().getFullYear() && parseInt(month, 10) < currentMonth)
+      ) {
+        return helpers.error('date.expired');
+      }
+      
+      return value;
+    })
     .messages({
-      'string.pattern.base': 'Expiration date must be in MM/YY format'
+      'string.pattern.base': 'Expiration date must be in MM/YY format',
+      'date.expired': 'Card has expired',
+      'any.required': 'Expiration date is required'
     }),
   securityCode: Joi.string()
     .pattern(/^[0-9]{3,4}$/)
     .required()
     .messages({
-      'string.pattern.base': 'Security code must be 3 or 4 digits'
+      'string.pattern.base': 'Security code must be 3 or 4 digits',
+      'any.required': 'Security code is required'
     }),
   zipCode: Joi.string()
     .pattern(/^[0-9]{5}(?:-[0-9]{4})?$/)
     .required()
     .messages({
-      'string.pattern.base': 'Invalid ZIP code format'
+      'string.pattern.base': 'Invalid ZIP code format',
+      'any.required': 'ZIP code is required'
     }),
   cardOwnerName: Joi.string()
     .min(2)
     .max(100)
+    .pattern(/^[a-zA-Z\s]+$/)
     .required()
+    .messages({
+      'string.min': 'Cardholder name must be at least 2 characters',
+      'string.max': 'Cardholder name must be less than 100 characters',
+      'string.pattern.base': 'Cardholder name can only contain letters and spaces',
+      'any.required': 'Cardholder name is required'
+    })
 });
 
 function validateHourlyCharterBook(hourlyCharterBook) {

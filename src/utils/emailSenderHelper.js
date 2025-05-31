@@ -157,7 +157,9 @@ function getHourlyCharterDetails(bookingType, booking) {
   const { pricePerHour, minimumStartFee } = booking.Car;
   const { percentage, description } = booking.Gratuity;
 
-  const carPrice = Number(pricePerHour * booking.selectedHours) + Number(minimumStartFee);
+  // const carPrice = Number(pricePerHour * booking.selectedHours) + Number(minimumStartFee);
+  const carPrice = Number(pricePerHour * booking.selectedHours);
+
 
   let extraOptionsPrice = 0;
   for (const extraOption of Object.values(extraOptions)) {
