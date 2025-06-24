@@ -15,7 +15,7 @@ const transporter = nodemailer.createTransport({
 const createLogoHeader = () => `
     <div style="text-align: center; padding: 32px 0; background-color: #ffffff; margin-bottom: 20px; border-bottom: 2px solid #f0f0f0;">
         <img src="https://odatransportation.com/static/media/ODA_Primary%20Logo.6715e0b164c507dbe1f2.png" 
-             alt="ODA Transportation Logo" 
+             alt="ODA Black Car Service Logo" 
              style="max-width: 200px; height: auto;" />
     </div>
 `;
@@ -33,7 +33,7 @@ const createLogoHeader = () => `
 //             transform: rotate(-5deg);
 //         ">
 //             <img src="https://odatransportation.com/static/media/ODA_Primary%20Logo.6715e0b164c507dbe1f2.png" 
-//                  alt="ODA Transportation Logo" 
+//                  alt="ODA Black Car Service Logo" 
 //                  style="
 //                     width: 120px;
 //                     height: 120px;
@@ -95,7 +95,7 @@ const sendEmail = async (req, res) => {
             <p style="white-space: pre-wrap; margin: 10px 0;">${message}</p>
           </div>
           <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; text-align: center;">
-            <p>This email was sent from the Oda Transportation contact form.</p>
+            <p>This email was sent from the ODA Black Car Service contact form.</p>
           </div>
         </div>
       </div>
@@ -104,7 +104,7 @@ const sendEmail = async (req, res) => {
         // Configure email options
         const mailOptions = {
             from: {
-                name: 'Oda Transportation Contact Form',
+                name: 'ODA Black Car Service Contact Form',
                 address: 'info@odatransportation.com'
             },
             to: to_email,
@@ -126,10 +126,10 @@ const sendEmail = async (req, res) => {
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 10px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
           ${createLogoHeader()}
           <div style="padding: 0 20px 20px;">
-            <h2 style="color: #03930A; text-align: center; margin-bottom: 30px;">Thank You for Contacting Us</h2>
+            <h2 style="color: #03930A; text-align: center; margin-bottom: 30px;">Thank You for Contacting ODA Black Car Service</h2>
             <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px;">
               <p style="margin: 10px 0;">Dear ${from_name},</p>
-              <p style="margin: 10px 0;">Thank you for reaching out to Oda Transportation. We have received your message regarding ${service.toLowerCase()} services.</p>
+              <p style="margin: 10px 0;">Thank you for reaching out to ODA Black Car Service. We have received your message regarding ${service.toLowerCase()} services.</p>
               <p style="margin: 10px 0;">Our team will review your request and get back to you within a short period.</p>
               <p style="margin: 20px 0; padding: 15px; background-color: #e8f5e9; border-radius: 5px; text-align: center;">
                 <strong>For urgent matters, please call us at (714) 313-4269</strong>
@@ -137,7 +137,7 @@ const sendEmail = async (req, res) => {
             </div>
             <div style="margin-top: 30px; text-align: center;">
               <p style="margin: 5px 0;"><strong>Best regards,</strong></p>
-              <p style="margin: 5px 0; color: #03930A;">Oda Transportation Team</p>
+              <p style="margin: 5px 0; color: #03930A;">ODA Black Car Service Team</p>
             </div>
             <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; text-align: center;">
               <a href="https://odatransportation.com" style="color: #03930A; text-decoration: none;">
@@ -151,11 +151,11 @@ const sendEmail = async (req, res) => {
         // Send auto-reply to customer
         const autoReplyOptions = {
             from: {
-                name: 'Oda Transportation',
+                name: 'ODA Black Car Service',
                 address: 'info@odatransportation.com'
             },
             to: from_email,
-            subject: 'Thank you for contacting Oda Transportation',
+            subject: 'Thank you for contacting ODA Black Car Service',
             html: autoReplyHtml
         };
 
