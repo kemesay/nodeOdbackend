@@ -177,21 +177,28 @@ async function bookingNotification(bookingType, booking) {
     const reservationTime = `${pacificTime}`; // Will output format like "6:08 PM (Pacific Time)"
 
     let reservationDetails, fareDetails;
-    if (bookingType === "Point to point") {
-      ({ reservationDetails, fareDetails } = getP2PReservationDetails(
-        bookingType,
-        booking
-      ));
-    } else if (bookingType === "Hourly Charter") {
-      ({ reservationDetails, fareDetails } = getHourlyCharterDetails(
-        bookingType,
-        booking
-      ));
-    } else {
-      ({ reservationDetails, fareDetails } = getAirportServiceDetails(
-        bookingType,
-        booking
-      ));
+    try {
+      if (bookingType === "Point to point") {
+        ({ reservationDetails, fareDetails } = getP2PReservationDetails(
+          bookingType,
+          booking
+        ));
+      } else if (bookingType === "Hourly Charter") {
+        ({ reservationDetails, fareDetails } = getHourlyCharterDetails(
+          bookingType,
+          booking
+        ));
+      } else if (bookingType === "Airport Service") {
+        ({ reservationDetails, fareDetails } = getAirportServiceDetails(
+          bookingType,
+          booking
+        ));
+      } else {
+        throw new Error(`Invalid booking type: ${bookingType}`);
+      }
+    } catch (error) {
+      console.error("Error getting reservation details:", error);
+      throw new Error(`Failed to get reservation details: ${error.message}`);
     }
 
     const userEmail = booking.passengerEmail;
@@ -210,7 +217,7 @@ async function bookingNotification(bookingType, booking) {
       },
       reservationDetails: reservationDetails,
       fareDetails: fareDetails,
-      totalFare: `$${booking.totalTripFeeInDollars}`,
+      totalFare: `$${Number(booking.totalTripFeeInDollars).toFixed(2)}`,
     };
 
     const userTemplatePath = path.join(

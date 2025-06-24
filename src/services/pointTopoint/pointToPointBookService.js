@@ -150,7 +150,7 @@ async function createPointToPointBook(pointToPointBookData) {
   pointToPointBook = await pointToPointBook.save();
 
   //notify admin and user
-  bookingNotification("Point to point service", pointToPointBook);
+  bookingNotification("Point to point", pointToPointBook);
 
   return  await getPointToPointBookById(pointToPointBook.pointToPointBookId);
 }

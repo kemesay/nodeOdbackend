@@ -68,7 +68,7 @@ async function calculateP2PTotalTripPrice(booking) {
   let carPrice =
     Number(pricePerMile * booking.distanceInMiles) + Number(minimumStartFee);
   
-    if (booking.tripType === "Round-Trip") carPrice *= 2;
+  if (booking.tripType === "Round-Trip") carPrice *= 2;
 
   let additionalStopPrice = booking.AdditionalStopOnTheWay
     ? booking.AdditionalStopOnTheWay.additionalStopPrice
@@ -99,7 +99,8 @@ async function calculateP2PTotalTripPrice(booking) {
   const tripPrice =
     Number(carPrice) + Number(additionalStopPrice) + Number(extraOptionsPrice);
 
-  return tripPrice + tripPrice * (percentage / 100);
+  const totalPrice = tripPrice + tripPrice * (percentage / 100);
+  return Number(totalPrice.toFixed(2));
 }
 
 async function calculateHourlyCharterTotalTripPrice(booking) {
@@ -117,13 +118,9 @@ async function calculateHourlyCharterTotalTripPrice(booking) {
     }
   }
 
-  const tripPrice =
-    // Number(minimumStartFee) + Number(carPrice) + Number(extraOptionsPrice);
-
-   Number(carPrice) + Number(extraOptionsPrice);
-
-
-  return tripPrice + tripPrice * (percentage / 100);
+  const tripPrice = Number(carPrice) + Number(extraOptionsPrice);
+  const totalPrice = tripPrice + tripPrice * (percentage / 100);
+  return Number(totalPrice.toFixed(2));
 }
 
 async function calculateAirportBookingTotalTripPrice(booking) {
@@ -203,7 +200,8 @@ async function calculateAirportBookingTotalTripPrice(booking) {
     Number(airportPickupPreferencePrice) +
     Number(extraOptionsPrice);
 
-  return percentage ? tripPrice + tripPrice * (percentage / 100) : tripPrice;
+  const totalPrice = percentage ? tripPrice + tripPrice * (percentage / 100) : tripPrice;
+  return Number(totalPrice.toFixed(2));
 }
 
 module.exports = {
