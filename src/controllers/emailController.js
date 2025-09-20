@@ -19,55 +19,6 @@ const createLogoHeader = () => `
              style="max-width: 200px; height: auto;" />
     </div>
 `;
-
-// Create reusable logo header component with stamp effect
-// const createLogoHeader = () => `
-//     <div style="text-align: center; padding: 32px 0; background-color: #ffffff; margin-bottom: 20px;">
-//         <div style="
-//             display: inline-block;
-//             padding: 8px;
-//             border-radius: 50%;
-//             background: linear-gradient(45deg, #f8f9fa, #ffffff);
-//             box-shadow: 0 2px 15px rgba(0, 0, 0, 0.1);
-//             position: relative;
-//             transform: rotate(-5deg);
-//         ">
-//             <img src="https://odatransportation.com/static/media/ODA_Primary%20Logo.6715e0b164c507dbe1f2.png" 
-//                  alt="ODA Black Car Service Logo" 
-//                  style="
-//                     width: 120px;
-//                     height: 120px;
-//                     object-fit: contain;
-//                     border-radius: 50%;
-//                     padding: 10px;
-//                     background-color: white;
-//                  " 
-//             />
-//             <div style="
-//                 position: absolute;
-//                 top: -2px;
-//                 left: -2px;
-//                 right: -2px;
-//                 bottom: -2px;
-//                 border: 2px dashed #03930A;
-//                 border-radius: 50%;
-//                 opacity: 0.5;
-//             "></div>
-//         </div>
-//         <div style="
-//             width: 100%;
-//             height: 2px;
-//             background: linear-gradient(90deg, 
-//                 transparent 0%, 
-//                 #03930A 15%, 
-//                 #03930A 85%, 
-//                 transparent 100%
-//             );
-//             margin-top: 20px;
-//         "></div>
-//     </div>
-// `;
-
 const sendEmail = async (req, res) => {
     try {
         const {

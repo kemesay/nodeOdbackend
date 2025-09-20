@@ -15,7 +15,7 @@ const sequelize = new Sequelize({
   port: 5432,
   username: "postgres",
   database: "oda_transportation",
-  password: "1234",
+  password: "postgres123",
 });
 
 async function connectToDatabase() {

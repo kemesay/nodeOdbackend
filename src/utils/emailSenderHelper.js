@@ -94,17 +94,17 @@ function getP2PReservationDetails(bookingType, booking) {
   }
 
   const tripPrice = booking.totalTripFeeInDollars;
-  let gratuity = `$${(tripPrice /(1+(percentage/100)))*percentage/100} (${description})`;
+  let gratuity = `$${Number((tripPrice /(1+(percentage/100)))*percentage/100).toFixed(2)} (${description})`;
   if (percentage == 0) {
     gratuity = "Will tip in cash";
   }
 
   const fareDetails = {
-    Fare: `$${carPrice}`,
-    "Return Fare": `$${carPrice}`,
+    Fare: `$${Number(carPrice).toFixed(2)}`,
+    "Return Fare": `$${Number(carPrice).toFixed(2)}`,
     "Stop On The Way Fare": null,
-    "Child Car Seat Fee": `$${extraOptionsPrice}`,
-    "Return Child Car Seat Fee": `$${extraOptionsPrice}`,
+    "Child Car Seat Fee": `$${Number(extraOptionsPrice).toFixed(2)}`,
+    "Return Child Car Seat Fee": `$${Number(extraOptionsPrice).toFixed(2)}`,
     Gratuity: gratuity,
   };
 
@@ -169,14 +169,14 @@ function getHourlyCharterDetails(bookingType, booking) {
   }
 
   const tripPrice = booking.totalTripFeeInDollars;
-  let gratuity = `$${(tripPrice /(1+(percentage/100)))*percentage/100} (${description})`;
+  let gratuity = `$${Number((tripPrice /(1+(percentage/100)))*percentage/100).toFixed(2)} (${description})`;
   if (percentage == 0) {
     gratuity = "Will tip in cash";
   }
 
   const fareDetails = {
-    Fare: `$${carPrice}`,
-    "Child Car Seat Fee": `$${extraOptionsPrice}`,
+    Fare: `$${Number(carPrice).toFixed(2)}`,
+    "Child Car Seat Fee": `$${Number(extraOptionsPrice).toFixed(2)}`,
     Gratuity: gratuity,
   };
 
@@ -334,18 +334,18 @@ function getAirportServiceDetails(bookingType, booking) {
   }
 
   const tripPrice = booking.totalTripFeeInDollars;
-  let gratuity = `$${(tripPrice /(1+(percentage/100)))*percentage/100} (${description})`;
+  let gratuity = `$${Number((tripPrice /(1+(percentage/100)))*percentage/100).toFixed(2)} (${description})`;
   if (percentage == 0) {
     gratuity = "Will tip in cash";
   }
 
   const fareDetails = {
-    Fare: `$${carPrice}`,
-    "Return Fare": `$${carPrice}`,
+      Fare: `$${Number(carPrice).toFixed(2)}`,
+    "Return Fare": `$${Number(carPrice).toFixed(2)}`,
     "Stop On The Way Fare": "$0",
     "Airport Pickup Preference Fare": "$0",
-    "Child Car Seat Fee": `$${extraOptionsPrice}`,
-    "Return Child Car Seat Fee": `$${extraOptionsPrice}`,
+    "Child Car Seat Fee": `$${Number(extraOptionsPrice).toFixed(2)}`,
+    "Return Child Car Seat Fee": `$${Number(extraOptionsPrice).toFixed(2)}`,
     Gratuity: gratuity,
   };
 
