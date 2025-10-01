@@ -218,10 +218,33 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       return await hourlyCharterBook.save();
     }
 
-    async function updateBookingStatus(hourlyCharterBookId, bookingStatus) {
+    async function updateBookingStatus(hourlyCharterBookId, updatedData) {
       const hourlyCharterBook = await getHourlyCharterBookById(hourlyCharterBookId);
 
-      hourlyCharterBook.bookingStatus = bookingStatus;
+      hourlyCharterBook.bookingStatus = updatedData.bookingStatus;
+
+      if (updatedData.discountAmount && updatedData.bookingStatus === 'ACCEPTED') {
+        await applyDiscountToHourlyCharterBook(hourlyCharterBookId, updatedData.discountAmount);
+      }
+      return await hourlyCharterBook.save();
+    }
+
+    async function applyDiscountToHourlyCharterBook(hourlyCharterBookId, discountAmount) {
+      const hourlyCharterBook = await getHourlyCharterBookById(hourlyCharterBookId);
+
+      if (discountAmount < 0) {
+        throw new ValidationError("Discount amount cannot be negative.");
+      }
+
+      if (discountAmount > hourlyCharterBook.totalTripFeeInDollars) {
+        throw new ValidationError("Discount amount cannot exceed total trip fee.");
+      }
+
+      hourlyCharterBook.totalTripFeeInDollars -= discountAmount;
+      hourlyCharterBook.discountAmountInDollars = discountAmount;
+      hourlyCharterBook.hasDiscountApplied = true;
+      // hourlyCharterBook.paymentStatus = 'DISCOUNT_APPLIED';
+
       return await hourlyCharterBook.save();
     }
 
@@ -283,4 +306,5 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       deleteHourlyCharterBook,
       updateBookingStatus,
       updatePaymentStatus,
+      applyDiscountToHourlyCharterBook,
     };

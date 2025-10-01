@@ -77,74 +77,54 @@ const passwordFormatMessage =
   "Password must include 1 uppercase letter, 1 lowercase letter, and 1 numeric digit.";
 
 // Validate user
-function validateUser(user) {
-  const schema = Joi.object({
-    fullName: Joi.string().min(2).max(100).required(),
-    email: Joi.string().email().max(255).required(),
-    phoneNumber: Joi.string()
-      .pattern(/^[0-9]{10,15}$/)
-      .message("Please provide a valid phone number.")
-      .required(),
-    password: Joi.string()
-      .min(8)
-      .max(100)
-      .regex(passwordFormat)
-      .message(passwordFormatMessage)
-      .required(),
-  });
-
-  return schema.validate(user);
-}
+const validateUser = Joi.object({
+  fullName: Joi.string().min(2).max(100).required(),
+  email: Joi.string().email().max(255).required(),
+  phoneNumber: Joi.string()
+    .pattern(/^[0-9]{10,15}$/)
+    .message("Please provide a valid phone number.")
+    .required(),
+  password: Joi.string()
+    .min(8)
+    .max(100)
+    .regex(passwordFormat)
+    .message(passwordFormatMessage)
+    .required(),
+});
 
 // Validate user data during user update
-function validateUserUpdate(user) {
-  const schema = Joi.object({
-    fullName: Joi.string().min(2).max(100),
-    email: Joi.string().email().max(255),
-    phoneNumber: Joi.string()
-      .pattern(/^[0-9]{10,15}$/)
-      .message("Please provide a valid phone number."),
-  });
+const validateUserUpdate = Joi.object({
+  fullName: Joi.string().min(2).max(100),
+  email: Joi.string().email().max(255),
+  phoneNumber: Joi.string()
+    .pattern(/^[0-9]{10,15}$/)
+    .message("Please provide a valid phone number."),
+});
 
-  return schema.validate(user);
-}
+const validateUserAuth = Joi.object({
+  username: Joi.string().required(),
+  password: Joi.string().min(8).max(100).required(),
+});
 
-function validateUserAuth(user) {
-  const schema = Joi.object({
-    username: Joi.string().required(),
-    password: Joi.string().min(8).max(100).required(),
-  });
+const validatePasswordChange = Joi.object({
+  currentPassword: Joi.string().min(8).max(100).required(),
+  newPassword: Joi.string()
+    .min(8)
+    .max(100)
+    .regex(passwordFormat)
+    .message(passwordFormatMessage)
+    .required(),
+});
 
-  return schema.validate(user);
-}
-
-function validatePasswordChange(req) {
-  const schema = Joi.object({
-    currentPassword: Joi.string().min(8).max(100).required(),
-    newPassword: Joi.string()
-      .min(8)
-      .max(100)
-      .regex(passwordFormat)
-      .message(passwordFormatMessage)
-      .required(),
-  });
-
-  return schema.validate(req);
-}
-
-function validatePasswordReset(req) {
-  const schema = Joi.object({
-    token: Joi.string().required(),
-    newPassword: Joi.string()
-      .min(8)
-      .max(100)
-      .regex(passwordFormat)
-      .message(passwordFormatMessage)
-      .required(),
-  });
-
-  return schema.validate(req);
-}
+const validatePasswordReset = Joi.object({
+  token: Joi.string().required(),
+  newPassword: Joi.string()
+    .min(8)
+    .max(100)
+    .regex(passwordFormat)
+    .message(passwordFormatMessage)
+    .required(),
+});
 
 module.exports = {
   User,

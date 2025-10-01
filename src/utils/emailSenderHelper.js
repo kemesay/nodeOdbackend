@@ -108,6 +108,11 @@ function getP2PReservationDetails(bookingType, booking) {
     Gratuity: gratuity,
   };
 
+  // Add discount if applicable
+  if (booking.hasDiscountApplied && booking.discountAmountInDollars > 0) {
+    fareDetails["Discount"] = `-$${Number(booking.discountAmountInDollars).toFixed(2)}`;
+  }
+
   if (!(tripType === "Round-Trip")) delete fareDetails["Return Fare"];
   if (!(tripType === "Round-Trip")) delete fareDetails["Return Child Car Seat Fee"];
 
@@ -179,6 +184,11 @@ function getHourlyCharterDetails(bookingType, booking) {
     "Child Car Seat Fee": `$${Number(extraOptionsPrice).toFixed(2)}`,
     Gratuity: gratuity,
   };
+
+  // Add discount if applicable
+  if (booking.hasDiscountApplied && booking.discountAmountInDollars > 0) {
+    fareDetails["Discount"] = `-$${Number(booking.discountAmountInDollars).toFixed(2)}`;
+  }
 
   return { reservationDetails, fareDetails };
 }
@@ -348,6 +358,11 @@ function getAirportServiceDetails(bookingType, booking) {
     "Return Child Car Seat Fee": `$${Number(extraOptionsPrice).toFixed(2)}`,
     Gratuity: gratuity,
   };
+
+  // Add discount if applicable
+  if (booking.hasDiscountApplied && booking.discountAmountInDollars > 0) {
+    fareDetails["Discount"] = `-$${Number(booking.discountAmountInDollars).toFixed(2)}`;
+  }
 
   const isRoundTrip =
     booking.tripType === "Ride to the airport(round trip)" ||

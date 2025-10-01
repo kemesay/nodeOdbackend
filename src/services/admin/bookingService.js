@@ -11,6 +11,12 @@ const {
   paymentNotification,
 } = require("../../utils/emailSender");
 const { findUserById } = require("../../services/user/userService");
+const {
+  formatDateTime,
+  getP2PReservationDetails,
+  getHourlyCharterDetails,
+  getAirportServiceDetails,
+} = require("../../utils/emailSenderHelper");
 
 async function adminBookingApproval(bookingReq) {
   const { bookingId, bookingType, action, rejectionReason } = bookingReq;
@@ -84,11 +90,67 @@ async function sendBookingApprovalEmailService(
   const emailData = {};
 
   if (action === "ACCEPTED") {
+    const date = new Date();
+    const pacificDate = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(date);
+
+    const pacificTime = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(date);
+
+    const reservationDate = pacificDate;
+    const reservationTime = `${pacificTime}`;
+
+    let reservationDetails, fareDetails;
+    try {
+      if (bookingType === "P2P") {
+        ({ reservationDetails, fareDetails } = getP2PReservationDetails(
+          "Point to point",
+          booking
+        ));
+      } else if (bookingType === "HOURLY_CHARTER") {
+        ({ reservationDetails, fareDetails } = getHourlyCharterDetails(
+          "Hourly Charter",
+          booking
+        ));
+      } else if (bookingType === "AIRPORT") {
+        ({ reservationDetails, fareDetails } = getAirportServiceDetails(
+          "Airport Service",
+          booking
+        ));
+      } else {
+        throw new Error(`Invalid booking type: ${bookingType}`);
+      }
+    } catch (error) {
+      console.error("Error getting reservation details for accepted booking email:", error);
+      throw new Error(`Failed to get reservation details for accepted booking email: ${error.message}`);
+    }
+
     emailData.name = booking.passengerFullName;
-    emailData.totalTripFee = booking.totalTripFeeInDollars;
-    emailData.bookingType = bookingTypeFullName;
-    emailData.pickupLocation = pickupLocation;
-    emailData.pickupDate = booking.pickupDateTime;
+    emailData.reservationDate = reservationDate;
+    emailData.reservationTime = reservationTime;
+    emailData.userEmail = userEmail;
+
+    emailData.contactDetails = {
+      "Confirmation Number": booking.confirmationNumber,
+      "Passenger Name": booking.passengerFullName,
+      "Contact Phone": booking.passengerCellPhone,
+      "Contact Email": userEmail,
+    };
+    emailData.reservationDetails = reservationDetails;
+    emailData.fareDetails = fareDetails;
+    emailData.totalFare = `$${Number(booking.totalTripFeeInDollars).toFixed(2)}`;
+
+    if (typeof booking.discountAmountInDollars !== 'undefined' && booking.discountAmountInDollars > 0) {
+      emailData.discountAmountInDollars = booking.discountAmountInDollars;
+    }
   } else {
     emailData.name = booking.passengerFullName;
     emailData.bookingType = bookingTypeFullName;

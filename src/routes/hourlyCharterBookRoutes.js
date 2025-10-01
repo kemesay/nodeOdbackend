@@ -8,12 +8,14 @@ const {
   deleteHourlyCharterBookController,
   updatePaymentStatusController,
   updateBookingStatusController,
+  applyDiscountToHourlyCharterBookController,
 } = require("../controllers/hourlyCharterBookController.js");
 
 const { validateHourlyCharterBook } = require("../models/HourlyCharterBook.js");
 const {
   validatePaymentStatus,
   validateBookingStatus,
+  validateDiscountApplication,
 } = require("../utils/validationUtils.js");
 
 const admin = require("../middleware/admin.js");
@@ -52,6 +54,11 @@ router.put(
   updateBookingStatusController
 );
 
+router.put(
+  "/:hourlyCharterBookId/apply-discount",
+  [auth, admin, validate(validateDiscountApplication)],
+  applyDiscountToHourlyCharterBookController
+);
 
 router.patch("/:hourlyCharterBookId/associations", [auth], async (req, res) => {
   const hourlyCharterBookId = req.params.hourlyCharterBookId;

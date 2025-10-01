@@ -31,22 +31,14 @@ const AdditionalStopOnTheWay = sequelize.define(
   }
 );
 
-function validateAdditionalStopOnTheWay(stopOnTheWay) {
-  const schema = Joi.object({
-    stopType: Joi.string().valid("Oneway", "Roundtrip").required(),
-    additionalStopPrice: Joi.number().precision(2).required(),
-  });
+const validateAdditionalStopOnTheWay = Joi.object({
+  stopType: Joi.string().valid("Oneway", "Roundtrip").required(),
+  additionalStopPrice: Joi.number().precision(2).required(),
+});
 
-  return schema.validate(stopOnTheWay);
-}
-
-function validateAdditionalStopOnTheWayUpdate(stopOnTheWay) {
-  const schema = Joi.object({
-    additionalStopPrice: Joi.number().min(1).precision(2).required(),
-  });
-
-  return schema.validate(stopOnTheWay);
-}
+const validateAdditionalStopOnTheWayUpdate = Joi.object({
+  additionalStopPrice: Joi.number().min(1).precision(2).required(),
+});
 
 module.exports = {
   AdditionalStopOnTheWay,

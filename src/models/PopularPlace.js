@@ -34,13 +34,9 @@ const PopularPlace = sequelize.define(
   }
 );
 
-function validatePopularPlace(popularPlace) {
-  const schema = Joi.object({
-    title: Joi.string().required(),
-    description: Joi.string().required(),
-  });
-
-  return schema.validate(popularPlace);
-}
+const validatePopularPlace = Joi.object({
+  title: Joi.string().required(),
+  description: Joi.string().required(),
+});
 
 module.exports = { PopularPlace, validatePopularPlace };

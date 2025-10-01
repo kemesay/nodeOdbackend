@@ -6,6 +6,7 @@ const {
   deleteHourlyCharterBook,
   updateBookingStatus,
   updatePaymentStatus,
+  applyDiscountToHourlyCharterBook,
 } = require("../services/hourlyCharter/hourlyCharterBookService.js");
 
 const authenticateToken = require("../utils/getUserFromToken.js");
@@ -106,12 +107,22 @@ async function updatePaymentStatusController(req, res, _next) {
 
 async function updateBookingStatusController(req, res, _next) {
   const hourlyCharterBookId = req.params.hourlyCharterBookId;
-  const { status } = req.body;
-  const updatedAirportBook = await updateBookingStatus(
-    hourlyCharterBookId,
-    status
-  );
-  return res.json(updatedAirportBook);
+  const { status, discountAmount } = req.body;
+
+  const updatedHourlyCharterBook = await updateBookingStatus(hourlyCharterBookId, { bookingStatus: status, discountAmount: discountAmount });
+  return res.json(updatedHourlyCharterBook);
+}
+
+async function applyDiscountToHourlyCharterBookController(req, res, _next) {
+  const hourlyCharterBookId = req.params.hourlyCharterBookId;
+  const { discountAmount } = req.body;
+
+  try {
+    const updatedHourlyCharterBook = await applyDiscountToHourlyCharterBook(hourlyCharterBookId, discountAmount);
+    return res.status(200).json(updatedHourlyCharterBook);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
 }
 
 module.exports = {
@@ -122,4 +133,5 @@ module.exports = {
   deleteHourlyCharterBookController,
   updatePaymentStatusController,
   updateBookingStatusController,
+  applyDiscountToHourlyCharterBookController,
 };

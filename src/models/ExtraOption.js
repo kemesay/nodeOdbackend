@@ -48,20 +48,16 @@ const ExtraOption = sequelize.define(
   }
 );
 
-function validateExtraOption(extraOption) {
-  const schema = Joi.object({
-    name: Joi.string().required(),
-    description: Joi.string().required(),
-    pricePerItem: Joi.number().precision(2).positive().required(),
-    hasMaxAllowedLimit: Joi.boolean().required(),
-    maxAllowedItems: Joi.number().integer().min(0).when("hasMaxAllowedItems", {
-      is: true,
-      then: Joi.required(),
-      otherwise: Joi.optional(),
-    }),
-  });
-
-  return schema.validate(extraOption);
-}
+const validateExtraOption = Joi.object({
+  name: Joi.string().required(),
+  description: Joi.string().required(),
+  pricePerItem: Joi.number().precision(2).positive().required(),
+  hasMaxAllowedLimit: Joi.boolean().required(),
+  maxAllowedItems: Joi.number().integer().min(0).when("hasMaxAllowedItems", {
+    is: true,
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+});
 
 module.exports = { ExtraOption, validateExtraOption };

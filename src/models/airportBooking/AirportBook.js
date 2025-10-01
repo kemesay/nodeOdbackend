@@ -160,6 +160,19 @@ const AirportBook = sequelize.define(
       },
     },
 
+    discountAmountInDollars: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0.00,
+      validate: {
+        min: 0,
+      },
+    },
+    hasDiscountApplied: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+
     paymentStatus: {
       type: DataTypes.ENUM(
         "NOT_PAID",
@@ -168,7 +181,8 @@ const AirportBook = sequelize.define(
         "PAID",
         "PENDING_REFUND",
         "REFUNDED",
-        "CANCELLED"
+        "CANCELLED",
+        "DISCOUNT_APPLIED"
       ),
       defaultValue: "NOT_PAID",
     },
@@ -304,74 +318,69 @@ const cardDetailsSchema = Joi.object({
     })
 });
 
-function validateAirportBook(airportBook) {
-  const schema = Joi.object({
-    tripType: Joi.string()
-      .valid(
-        "Ride to the airport(one way)",
-        "Ride from the airport(one way)",
+const validateAirportBook = Joi.object({
+  tripType: Joi.string()
+    .valid(
+      "Ride to the airport(one way)",
+      "Ride from the airport(one way)",
+      "Ride to the airport(round trip)",
+      "Ride from the airport(round trip)"
+    )
+    .required(),
+  numberOfPassengers: Joi.number().integer().min(1).required(),
+  accommodationAddress: Joi.string().required(),
+  accommodationLongitude: Joi.number().required(),
+  accommodationLatitude: Joi.number().required(),
+  pickupDateTime: Joi.string()
+    .regex(dateFormat)
+    .message("Invalid pickup Date format. " + dateFormatMessage)
+    .required(),
+  distanceInMiles: Joi.number().precision(2).required(),
+  passengerFullName: Joi.string().min(2).max(100).required(),
+  passengerEmail: Joi.string().email().max(255).required(),
+  passengerCellPhone: Joi.string()
+    .pattern(/^[0-9]{10,15}$/)
+    .message("Please provide a valid guest phone number.")
+    .required(),
+  numberOfSuitcases: Joi.number().integer().min(0).default(0),
+  isGuestBooking: Joi.boolean().default(false),
+  bookingFor: Joi.string().valid("Myself", "SomeoneElse").default("Myself"),
+  paymentMethod: Joi.string()
+    .valid("PRIMARY_CARD", "EXISTING_CARD", "NEW_CARD")
+    .default("NEW_CARD"),
+  airline: Joi.string().allow(""),
+  arrivalFlightNumber: Joi.string().allow(""),
+  returnAirline: Joi.string().allow(""),
+  returnFlightNumber: Joi.string().allow(""),
+  specialInstructions: Joi.string().allow(""),
+  carId: Joi.number().integer().allow(null),
+  gratuityId: Joi.number().integer().allow(null),
+  airportId: Joi.number().integer().allow(null),
+  extraOptions: Joi.array().items(extraOptionSchema).min(0),
+  pickupPreferenceId: Joi.number().integer().allow(null),
+  additionalStopId: Joi.number().integer().allow(null),
+  additionalStopOnTheWayDescription: Joi.string().allow(""),
+  paymentDetailId: Joi.when('paymentMethod', {
+    is: 'EXISTING_CARD',
+    then: Joi.number().required(),
+    otherwise: Joi.forbidden()
+  }),
+  returnPickupDateTime: Joi.string()
+    .regex(dateFormat)
+    .message("Invalid return Pickup Date format. " + dateFormatMessage)
+    .when("tripType", {
+      is: Joi.string().valid(
         "Ride to the airport(round trip)",
         "Ride from the airport(round trip)"
-      )
-      .required(),
-    numberOfPassengers: Joi.number().integer().min(1).required(),
-    accommodationAddress: Joi.string().required(),
-    accommodationLongitude: Joi.number().required(),
-    accommodationLatitude: Joi.number().required(),
-    pickupDateTime: Joi.string()
-      .regex(dateFormat)
-      .message("Invalid pickup Date format. " + dateFormatMessage)
-      .required(),
-    distanceInMiles: Joi.number().precision(2).required(),
-    passengerFullName: Joi.string().min(2).max(100).required(),
-    passengerEmail: Joi.string().email().max(255).required(),
-    passengerCellPhone: Joi.string()
-      .pattern(/^[0-9]{10,15}$/)
-      .message("Please provide a valid guest phone number.")
-      .required(),
-    numberOfSuitcases: Joi.number().integer().min(0).default(0),
-    isGuestBooking: Joi.boolean().default(false),
-    bookingFor: Joi.string().valid("Myself", "SomeoneElse").default("Myself"),
-    paymentMethod: Joi.string()
-      .valid("PRIMARY_CARD", "EXISTING_CARD", "NEW_CARD")
-      .default("NEW_CARD"),
-    airline: Joi.string().allow(""),
-    arrivalFlightNumber: Joi.string().allow(""),
-    returnAirline: Joi.string().allow(""),
-    returnFlightNumber: Joi.string().allow(""),
-    specialInstructions: Joi.string().allow(""),
-    carId: Joi.number().integer().allow(null),
-    gratuityId: Joi.number().integer().allow(null),
-    airportId: Joi.number().integer().allow(null),
-    extraOptions: Joi.array().items(extraOptionSchema).min(0),
-    pickupPreferenceId: Joi.number().integer().allow(null),
-    additionalStopId: Joi.number().integer().allow(null),
-    additionalStopOnTheWayDescription: Joi.string().allow(""),
-    paymentDetailId: Joi.number().integer().allow(null),
-    returnPickupDateTime: Joi.string()
-      .regex(dateFormat)
-      .message("Invalid return Pickup Date format. " + dateFormatMessage)
-      .when("tripType", {
-        is: Joi.string().valid(
-          "Ride to the airport(round trip)",
-          "Ride from the airport(round trip)"
-        ),
-        then: Joi.required(),
-        otherwise: Joi.allow(null),
-      }),
-    cardDetails: Joi.when('paymentMethod', {
-      is: 'NEW_CARD',
-      then: cardDetailsSchema.required(),
-      otherwise: Joi.forbidden()
+      ),
+      then: Joi.required(),
+      otherwise: Joi.allow(null),
     }),
-    paymentDetailId: Joi.when('paymentMethod', {
-      is: 'EXISTING_CARD',
-      then: Joi.number().required(),
-      otherwise: Joi.forbidden()
-    })
-  });
-
-  return schema.validate(airportBook);
-}
+  cardDetails: Joi.when('paymentMethod', {
+    is: 'NEW_CARD',
+    then: cardDetailsSchema.required(),
+    otherwise: Joi.forbidden()
+  })
+});
 
 module.exports = { AirportBook, validateAirportBook };

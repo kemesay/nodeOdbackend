@@ -9,6 +9,7 @@ const {
   deletePointToPointBookController,
   updatePaymentStatusController,
   updateBookingStatusController,
+  applyDiscountToPointToPointBookController,
 } = require("../controllers/pointToPointBookController.js");
 
 const { validatePointToPointBook } = require("../models/PointToPointBook.js");
@@ -16,6 +17,7 @@ const { validatePointToPointBook } = require("../models/PointToPointBook.js");
 const {
   validatePaymentStatus,
   validateBookingStatus,
+  validateDiscountApplication,
 } = require("../utils/validationUtils.js");
 
 const admin = require("../middleware/admin.js");
@@ -50,6 +52,13 @@ router.put(
   [auth, admin, validate(validateBookingStatus)],
   updateBookingStatusController
 );
+
+router.put(
+  "/:pointToPointBookId/apply-discount",
+  [auth, admin, validate(validateDiscountApplication)],
+  applyDiscountToPointToPointBookController
+);
+
 // Add new route for updating associations
 router.patch("/:pointToPointBookId/associations", [auth], async (req, res) => {
   const pointToPointBookId = req.params.pointToPointBookId;

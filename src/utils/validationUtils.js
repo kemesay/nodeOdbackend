@@ -11,72 +11,68 @@ const dateFormat =
 const dateFormatMessage =
   "Please use YY-MM-DD HH:mm:ss with numeric characters only.";
 
-function validatePaymentStatus(status) {
-  const schema = Joi.object({
-    status: Joi.string()
-      .valid(
-        "AWAITING_PAYMENT",
-        "PARTIALLY_PAID",
-        "PAID",
-        "PENDING_REFUND",
-        "REFUNDED",
-        "CANCELLED"
-      )
-      .required(),
-  });
+const validatePaymentStatus = Joi.object({
+  status: Joi.string()
+    .valid(
+      "AWAITING_PAYMENT",
+      "PARTIALLY_PAID",
+      "PAID",
+      "PENDING_REFUND",
+      "REFUNDED",
+      "CANCELLED",
+      "DISCOUNT_APPLIED"
+    )
+    .required(),
+});
 
-  return schema.validate(status);
-}
+const validateBookingStatus = Joi.object({
+  status: Joi.string()
+    .valid(
+      "UNDER_REVIEW",
+      "ACCEPTED",
+      "REJECTED",
+      "CANCELLED",
+      "AWAITING_PICKUP",
+      "PICKUP_COMPLETED",
+      "EN_ROUTE",
+      "AWAITING_RETURN_PICKUP",
+      "PICKUP_COMPLETED",
+      "EN_ROUTE",
+      "AWAITING_RETURN_PICKUP",
+      "RETURN_PICKUP_COMPLETED",
+      "OVERDUE",
+      "DISPUTED",
+      "COMPLETED"
+    )
+    .required(),
+});
 
-function validateBookingStatus(status) {
-  const schema = Joi.object({
-    status: Joi.string()
-      .valid(
-        "UNDER_REVIEW",
-        "ACCEPTED",
-        "REJECTED",
-        "CANCELLED",
-        "AWAITING_PICKUP",
-        "PICKUP_COMPLETED",
-        "EN_ROUTE",
-        "AWAITING_RETURN_PICKUP",
-        "RETURN_PICKUP_COMPLETED",
-        "OVERDUE",
-        "DISPUTED",
-        "COMPLETED"
-      )
-      .required(),
-  });
+const validateDiscountApplication = Joi.object({
+  discountAmount: Joi.number().min(0.01).required().messages({
+    'number.base': 'Discount amount must be a number',
+    'number.min': 'Discount amount must be at least 0.01',
+    'any.required': 'Discount amount is required',
+  }),
+});
 
-  return schema.validate(status);
-}
+const validateAdminBookingApproval = Joi.object({
+  bookingId: Joi.number().required(),
+  bookingType: Joi.string()
+    .valid("P2P", "HOURLY_CHARTER", "AIRPORT")
+    .required(),
+  action: Joi.string().valid("ACCEPTED", "REJECTED").required(),
+  rejectionReason: Joi.string().when("action", {
+    is: "REJECTED",
+    then: Joi.required(),
+  }),
+});
 
-function validateAdminBookingApproval(bookingReq) {
-  const schema = Joi.object({
-    bookingId: Joi.number().required(),
-    bookingType: Joi.string()
-      .valid("P2P", "HOURLY_CHARTER", "AIRPORT")
-      .required(),
-    action: Joi.string().valid("ACCEPTED", "REJECTED").required(),
-    rejectionReason: Joi.string().when("action", {
-      is: "REJECTED",
-      then: Joi.required(),
-    }),
-  });
-
-  return schema.validate(bookingReq);
-}
-
-function validatePaymentUpdateReq(bookingReq) {
-  const schema = Joi.object({
-    bookingId: Joi.number().required(),
-    bookingType: Joi.string()
-      .valid("P2P", "HOURLY_CHARTER", "AIRPORT")
-      .required(),
-  });
-
-  return schema.validate(bookingReq);
-}
+const validatePaymentUpdateReq = Joi.object({
+  bookingId: Joi.number().required(),
+  bookingType: Joi.string()
+    .valid("P2P", "HOURLY_CHARTER", "AIRPORT")
+    .required(),
+});
 
 // payment-validations and message
 const testCards = [
@@ -114,6 +110,7 @@ module.exports = {
   validateAdminBookingApproval,
   validatePaymentStatus,
   validateBookingStatus,
+  validateDiscountApplication,
   testCards,
   creditCardNumberMessage,
   expirationDateMessage,

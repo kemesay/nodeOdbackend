@@ -212,10 +212,33 @@ async function updatePaymentStatus(pointToPointBookId, paymentStatus) {
   return await pointToPointBook.save();
 }
 
-async function updateBookingStatus(pointToPointBookId, bookingStatus) {
+async function applyDiscountToPointToPointBook(pointToPointBookId, discountAmount) {
   const pointToPointBook = await getPointToPointBookById(pointToPointBookId);
 
-  pointToPointBook.bookingStatus = bookingStatus;
+  if (discountAmount < 0) {
+    throw new ValidationError("Discount amount cannot be negative.");
+  }
+
+  if (discountAmount > pointToPointBook.totalTripFeeInDollars) {
+    throw new ValidationError("Discount amount cannot exceed total trip fee.");
+  }
+
+  pointToPointBook.totalTripFeeInDollars -= discountAmount;
+  pointToPointBook.discountAmountInDollars = discountAmount;
+  pointToPointBook.hasDiscountApplied = true;
+  // pointToPointBook.paymentStatus = 'DISCOUNT_APPLIED';
+
+  return await pointToPointBook.save();
+}
+
+async function updateBookingStatus(pointToPointBookId, updatedData) {
+  const pointToPointBook = await getPointToPointBookById(pointToPointBookId);
+
+  pointToPointBook.bookingStatus = updatedData.bookingStatus;
+
+  if (updatedData.discountAmount && updatedData.bookingStatus === 'ACCEPTED') {
+    await applyDiscountToPointToPointBook(pointToPointBookId, updatedData.discountAmount);
+  }
   return await pointToPointBook.save();
 }
 
@@ -288,4 +311,5 @@ module.exports = {
   deletePointToPointBook,
   updateBookingStatus,
   updatePaymentStatus,
+  applyDiscountToPointToPointBook,
 };

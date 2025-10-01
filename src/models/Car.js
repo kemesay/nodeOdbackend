@@ -86,28 +86,24 @@ const Car = sequelize.define(
   }
 );
 
-function validateCar(car) {
-  const schema = Joi.object({
-    carName: Joi.string().required(),
-    carDescription: Joi.string().required(),
-    maxPassengers: Joi.number().integer().min(1).required(),
-    maxSuitcases: Joi.number().integer().min(0).required(),
-    carType: Joi.string().required(),
-    pricePerMile: Joi.number().precision(2).positive().required(),
-    pricePerHour: Joi.number().precision(2).positive().required(),
-    minimumStartFee: Joi.number().precision(2).positive().required(),
-    currency: Joi.string().length(3).default("USD"),
-    engineType: Joi.string(),
-    length: Joi.number().precision(2),
-    interiorColor: Joi.string(),
-    exteriorColor: Joi.string(),
-    power: Joi.string(),
-    transmissionType: Joi.string(),
-    fuelType: Joi.string(),
-    extras: Joi.string().allow(""),
-  });
-
-  return schema.validate(car);
-}
+const validateCar = Joi.object({
+  carName: Joi.string().required(),
+  carDescription: Joi.string().required(),
+  maxPassengers: Joi.number().integer().min(1).required(),
+  maxSuitcases: Joi.number().integer().min(0).required(),
+  carType: Joi.string().required(),
+  pricePerMile: Joi.number().precision(2).positive().required(),
+  pricePerHour: Joi.number().precision(2).positive().required(),
+  minimumStartFee: Joi.number().precision(2).positive().required(),
+  currency: Joi.string().length(3).default("USD"),
+  engineType: Joi.string(),
+  length: Joi.number().precision(2),
+  interiorColor: Joi.string(),
+  exteriorColor: Joi.string(),
+  power: Joi.string(),
+  transmissionType: Joi.string(),
+  fuelType: Joi.string(),
+  extras: Joi.string().allow(""),
+});
 
 module.exports = { Car, validateCar };

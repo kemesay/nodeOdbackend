@@ -47,15 +47,7 @@ async function createAirportBook(airportBookData) {
     ...otherData
   } = airportBookData;
 
-  // if (!paymentMethod) {
-  //   throw new ValidationError("Payment method is required");
-  // }
-
-  // if ((paymentMethod === 'PRIMARY_CARD' || paymentMethod === 'EXISTING_CARD')) {
-  //   if (!userId) {
-  //     throw new ValidationError("User authentication required for saved payment methods");
-  //   }
-  // }
+ 
 
   const confirmationNumber = await generateConfirmationNumber();
 
@@ -205,10 +197,34 @@ async function updatePaymentStatus(airportBookId, paymentStatus) {
   return await airportBook.save();
 }
 
-async function updateBookingStatus(airportBookId, bookingStatus) {
+async function updateBookingStatus(airportBookId, updatedData) {
   const airportBook = await getAirportBookById(airportBookId);
 
-  airportBook.bookingStatus = bookingStatus;
+  airportBook.bookingStatus = updatedData.bookingStatus;
+
+  if (updatedData.discountAmount && updatedData.bookingStatus === 'ACCEPTED') {
+    await applyDiscountToAirportBook(airportBookId, updatedData.discountAmount);
+  }
+
+  return await airportBook.save();
+}
+
+async function applyDiscountToAirportBook(airportBookId, discountAmount) {
+  const airportBook = await getAirportBookById(airportBookId);
+
+  if (discountAmount < 0) {
+    throw new ValidationError("Discount amount cannot be negative.");
+  }
+
+  if (discountAmount > airportBook.totalTripFeeInDollars) {
+    throw new ValidationError("Discount amount cannot exceed total trip fee.");
+  }
+
+  airportBook.totalTripFeeInDollars -= discountAmount;
+  airportBook.discountAmountInDollars = discountAmount;
+  airportBook.hasDiscountApplied = true;
+  // airportBook.paymentStatus = 'DISCOUNT_APPLIED';
+
   return await airportBook.save();
 }
 
@@ -342,4 +358,5 @@ module.exports = {
   getAirportBooks,
   updatePaymentStatus,
   updateBookingStatus,
+  applyDiscountToAirportBook,
 };

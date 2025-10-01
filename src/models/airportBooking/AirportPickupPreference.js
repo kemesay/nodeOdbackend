@@ -39,13 +39,9 @@ const AirportPickupPreference = sequelize.define(
   }
 );
 
-function validateAirportPickupPreference(airportPickupPreference) {
-  const schema = Joi.object({
-    preferenceName: Joi.string().required(),
-    preferencePrice: Joi.number().precision(2).required(),
-  });
-
-  return schema.validate(airportPickupPreference);
-}
+const validateAirportPickupPreference = Joi.object({
+  preferenceName: Joi.string().required(),
+  preferencePrice: Joi.number().precision(2).required(),
+});
 
 module.exports = { AirportPickupPreference, validateAirportPickupPreference };

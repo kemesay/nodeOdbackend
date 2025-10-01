@@ -32,13 +32,9 @@ const SocialMedia = sequelize.define(
   }
 );
 
-function validateSocialMedia(socialMedia) {
-  const schema = Joi.object({
-    link: Joi.string().required(),
-    title: Joi.string(),
-  });
-
-  return schema.validate(socialMedia);
-}
+const validateSocialMedia = Joi.object({
+  link: Joi.string().required(),
+  title: Joi.string(),
+});
 
 module.exports = { validateSocialMedia, SocialMedia };

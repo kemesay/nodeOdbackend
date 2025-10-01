@@ -6,6 +6,7 @@ const {
   deletePointToPointBook,
   updateBookingStatus,
   updatePaymentStatus,
+  applyDiscountToPointToPointBook,
 } = require("../services/pointTopoint/pointToPointBookService.js");
 
 const { successResponse } = require("../utils/responseUtil.js");
@@ -108,11 +109,21 @@ async function updatePaymentStatusController(req, res, _next) {
 async function updateBookingStatusController(req, res, _next) {
   const pointToPointBookId = req.params.pointToPointBookId;
   const { status } = req.body;
-  const updatedAirportBook = await updateBookingStatus(
-    pointToPointBookId,
-    status
-  );
-  return res.json(updatedAirportBook);
+
+  const updatedPointToPointBook = await updateBookingStatus(pointToPointBookId, { bookingStatus: status});
+  return res.json(updatedPointToPointBook);
+}
+
+async function applyDiscountToPointToPointBookController(req, res, _next) {
+  const pointToPointBookId = req.params.pointToPointBookId;
+  const { discountAmount } = req.body;
+
+  try {
+    const updatedPointToPointBook = await applyDiscountToPointToPointBook(pointToPointBookId, discountAmount);
+    return res.status(200).json(updatedPointToPointBook);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
 }
 
 module.exports = {
@@ -123,4 +134,5 @@ module.exports = {
   deletePointToPointBookController,
   updatePaymentStatusController,
   updateBookingStatusController,
+  applyDiscountToPointToPointBookController,
 };

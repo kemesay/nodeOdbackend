@@ -39,15 +39,11 @@ const Airport = sequelize.define(
   }
 );
 
-function validateAirport(airport) {
-  const schema = Joi.object({
-    airportName: Joi.string().required(),
-    airportAddress: Joi.string().required(),
-    airportAddressLongitude: Joi.number().required(),
-    airportAddressLatitude: Joi.number().required(),
-  });
-
-  return schema.validate(airport);
-}
+const validateAirport = Joi.object({
+  airportName: Joi.string().required(),
+  airportAddress: Joi.string().required(),
+  airportAddressLongitude: Joi.number().required(),
+  airportAddressLatitude: Joi.number().required(),
+});
 
 module.exports = { Airport, validateAirport };

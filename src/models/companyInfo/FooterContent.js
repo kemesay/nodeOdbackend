@@ -48,26 +48,22 @@ const FooterContent = sequelize.define(
   }
 );
 
-function validateFooterContent(footerContent) {
-  const schema = Joi.object({
-    contactEmail: Joi.string().email().required().label("Contact Email"),
-    contactPhoneNumber: Joi.string()
-      .pattern(/^[0-9]{10,15}$/)
-      .message("Please provide a valid phone number."),
-    addressZipCode: Joi.string()
-      .regex(/^\d{5}(?:[-\s]\d{4})?$/) // Regex for US ZIP codes
-      .required()
-      .label("Address ZIP Code")
-      .messages({
-        "string.pattern.base": "{{#label}} must be a valid US ZIP code",
-      }),
-    addressState: Joi.string().required().label("Address State"),
-    aboutUsDescription: Joi.string().required().label("About Us Description"),
-    termsAndCondition: Joi.string().required(),
-    safetyandTrust: Joi.string().required(),
-  });
-
-  return schema.validate(footerContent);
-}
+const validateFooterContent = Joi.object({
+  contactEmail: Joi.string().email().required().label("Contact Email"),
+  contactPhoneNumber: Joi.string()
+    .pattern(/^[0-9]{10,15}$/)
+    .message("Please provide a valid phone number."),
+  addressZipCode: Joi.string()
+    .regex(/^\d{5}(?:[-\s]\d{4})?$/) // Regex for US ZIP codes
+    .required()
+    .label("Address ZIP Code")
+    .messages({
+      "string.pattern.base": "{{#label}} must be a valid US ZIP code",
+    }),
+  addressState: Joi.string().required().label("Address State"),
+  aboutUsDescription: Joi.string().required().label("About Us Description"),
+  termsAndCondition: Joi.string().required(),
+  safetyandTrust: Joi.string().required(),
+});
 
 module.exports = { validateFooterContent, FooterContent };

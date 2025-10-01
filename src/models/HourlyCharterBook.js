@@ -132,6 +132,18 @@ const HourlyCharterBook = sequelize.define(
         },
       },
     },
+    discountAmountInDollars: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0.00,
+      validate: {
+        min: 0,
+      },
+    },
+    hasDiscountApplied: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
     paymentStatus: {
       type: DataTypes.ENUM(
         "NOT_PAID",
@@ -140,7 +152,8 @@ const HourlyCharterBook = sequelize.define(
         "PAID",
         "PENDING_REFUND",
         "REFUNDED",
-        "CANCELLED"
+        "CANCELLED",
+        "DISCOUNT_APPLIED"
       ),
       defaultValue: "NOT_PAID",
     },
@@ -263,53 +276,49 @@ const cardDetailsSchema = Joi.object({
     })
 });
 
-function validateHourlyCharterBook(hourlyCharterBook) {
-  const schema = Joi.object({
-    pickupPhysicalAddress: Joi.string().required(),
-    pickupLongitude: Joi.number().required(),
-    pickupLatitude: Joi.number().required(),
-    dropoffPhysicalAddress: Joi.string().required(),
-    dropoffLongitude: Joi.number().required(),
-    dropoffLatitude: Joi.number().required(),
-    selectedHours: Joi.number().integer().min(1).max(24).required(),
-    occasion: Joi.string().min(1).max(100).required(),
-    numberOfPassengers: Joi.number().integer().min(1).required(),
-    numberOfSuitcases: Joi.number().integer().min(0).default(0),
-    carId: Joi.number().integer().required(),
-    gratuityId: Joi.number().integer().required(),
-    extraOptions: Joi.array().items(extraOptionSchema).min(1),
-    pickupDateTime: Joi.string()
-      .regex(dateFormat)
-      .message("Invalid pickup Date format. " + dateFormatMessage)
-      .required(),
-    specialInstructions: Joi.string().allow(""),
+const validateHourlyCharterBook = Joi.object({
+  pickupPhysicalAddress: Joi.string().required(),
+  pickupLongitude: Joi.number().required(),
+  pickupLatitude: Joi.number().required(),
+  dropoffPhysicalAddress: Joi.string().required(),
+  dropoffLongitude: Joi.number().required(),
+  dropoffLatitude: Joi.number().required(),
+  selectedHours: Joi.number().integer().min(1).max(24).required(),
+  occasion: Joi.string().min(1).max(100).required(),
+  numberOfPassengers: Joi.number().integer().min(1).required(),
+  numberOfSuitcases: Joi.number().integer().min(0).default(0),
+  carId: Joi.number().integer().required(),
+  gratuityId: Joi.number().integer().required(),
+  extraOptions: Joi.array().items(extraOptionSchema).min(1),
+  pickupDateTime: Joi.string()
+    .regex(dateFormat)
+    .message("Invalid pickup Date format. " + dateFormatMessage)
+    .required(),
+  specialInstructions: Joi.string().allow(""),
 
-    isGuestBooking: Joi.boolean().default(false).required(),
-    bookingFor: Joi.string().valid("Myself", "SomeoneElse").required(),
-    passengerFullName: Joi.string().min(2).max(100).required(),
-    paymentMethod: Joi.string()
-      .valid("PRIMARY_CARD", "EXISTING_CARD", "NEW_CARD")
-      .default("NEW_CARD"),
-    passengerEmail: Joi.string().email().max(255).required(),
-    passengerCellPhone: Joi.string()
-      .pattern(/^[0-9]{10,15}$/)
-      .message("Please provide a valid guest phone number.")
-      .required(),
+  isGuestBooking: Joi.boolean().default(false).required(),
+  bookingFor: Joi.string().valid("Myself", "SomeoneElse").required(),
+  passengerFullName: Joi.string().min(2).max(100).required(),
+  paymentMethod: Joi.string()
+    .valid("PRIMARY_CARD", "EXISTING_CARD", "NEW_CARD")
+    .default("NEW_CARD"),
+  passengerEmail: Joi.string().email().max(255).required(),
+  passengerCellPhone: Joi.string()
+    .pattern(/^[0-9]{10,15}$/)
+    .message("Please provide a valid guest phone number.")
+    .required(),
 
-    //Payment info
-    cardDetails: Joi.when('paymentMethod', {
-      is: 'NEW_CARD',
-      then: cardDetailsSchema.required(),
-      otherwise: Joi.forbidden()
-    }),
-    paymentDetailId: Joi.when('paymentMethod', {
-      is: 'EXISTING_CARD',
-      then: Joi.number().required(),
-      otherwise: Joi.forbidden()
-    })
-  });
-
-  return schema.validate(hourlyCharterBook);
-}
+  //Payment info
+  cardDetails: Joi.when('paymentMethod', {
+    is: 'NEW_CARD',
+    then: cardDetailsSchema.required(),
+    otherwise: Joi.forbidden()
+  }),
+  paymentDetailId: Joi.when('paymentMethod', {
+    is: 'EXISTING_CARD',
+    then: Joi.number().required(),
+    otherwise: Joi.forbidden()
+  })
+});
 
 module.exports = { validateHourlyCharterBook, HourlyCharterBook };

@@ -6,6 +6,7 @@ const {
   getAirportBooks,
   updatePaymentStatus,
   updateBookingStatus,
+  applyDiscountToAirportBook,
 } = require("../../services/airportBooking/airportBookService.js");
 
 const authenticateToken = require("../../utils/getUserFromToken.js");
@@ -75,8 +76,21 @@ async function updatePaymentStatusController(req, res, _next) {
 async function updateBookingStatusController(req, res, _next) {
   const airportBookId = req.params.airportBookId;
   const { status } = req.body;
-  const updatedAirportBook = await updateBookingStatus(airportBookId, status);
+
+  const updatedAirportBook = await updateBookingStatus(airportBookId, { bookingStatus: status});
   return res.json(updatedAirportBook);
+}
+
+async function applyDiscountToAirportBookController(req, res, _next) {
+  const airportBookId = req.params.airportBookId;
+  const { discountAmount } = req.body;
+
+  try {
+    const updatedAirportBook = await applyDiscountToAirportBook(airportBookId, discountAmount);
+    return res.status(200).json(updatedAirportBook);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
 }
 
 async function getAirportBookController(req, res, _next) {
@@ -115,4 +129,5 @@ module.exports = {
   getAirportBooksController,
   updatePaymentStatusController,
   updateBookingStatusController,
+  applyDiscountToAirportBookController,
 };

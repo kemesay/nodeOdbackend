@@ -9,6 +9,7 @@ const {
   getAirportBooksController,
   updatePaymentStatusController,
   updateBookingStatusController,
+  applyDiscountToAirportBookController,
 } = require("../../controllers/airportBooking/airportBookController.js");
 
 const {
@@ -18,6 +19,7 @@ const {
 const {
   validatePaymentStatus,
   validateBookingStatus,
+  validateDiscountApplication,
 } = require("../../utils/validationUtils.js");
 
 const auth = require("../../middleware/auth.js");
@@ -38,6 +40,12 @@ router.put(
   "/:airportBookId/booking-status",
   [auth, admin, validate(validateBookingStatus)],
   updateBookingStatusController
+);
+
+router.put(
+  "/:airportBookId/apply-discount",
+  [auth, admin, validate(validateDiscountApplication)],
+  applyDiscountToAirportBookController
 );
 
 router.delete("/:airportBookId", [auth, admin], deleteAirportBookController);

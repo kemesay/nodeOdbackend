@@ -33,12 +33,8 @@ const Gratuity = sequelize.define(
   }
 );
 
-function validateGratuity(gratuity) {
-  const schema = Joi.object({
-    percentage: Joi.number().min(0).max(100).required(),
-  });
-
-  return schema.validate(gratuity);
-}
+const validateGratuity = Joi.object({
+  percentage: Joi.number().min(0).max(100).required(),
+});
 
 module.exports = { Gratuity, validateGratuity };
