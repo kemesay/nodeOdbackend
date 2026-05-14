@@ -41,7 +41,9 @@ async function getAllCars() {
 
 async function uploadCarImage(carId, filePath) {
   const car = await getCarById(carId);
-  const imageUrl = `https://api.odatransportation.com/uploads/${filePath}`;
+   const imageUrl = `https://api.odatransportation.com/uploads/${filePath}`;
+ // const imageUrl = `/uploads/${filePath}`;
+
   car.carImageUrl = imageUrl;
   await car.save();
   return car;
@@ -68,3 +70,4 @@ module.exports = {
   toggleCarStatus,
   uploadCarImage,
 };
+

@@ -1,14 +1,10 @@
-class ValidationError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = 'ValidationError';
-  }
-}
-
 class ResourceNotFoundError extends Error {
-  constructor(message) {
+  status;
+
+  constructor(message = "Resource not found.") {
     super(message);
-    this.name = 'ResourceNotFoundError';
+    this.name = "ResourceNotFoundError";
+    this.status = 404;
   }
 }
 
@@ -42,6 +38,17 @@ class BadRequestError extends Error {
   }
 }
 
+/** Business / input validation (bookings, payment). Use with `instanceof` in catch blocks. */
+class ValidationError extends Error {
+  status;
+
+  constructor(message = "Validation failed") {
+    super(message);
+    this.name = "ValidationError";
+    this.status = 400;
+  }
+}
+
 class ForbiddenError extends Error {
   status;
 
@@ -53,10 +60,10 @@ class ForbiddenError extends Error {
 }
 
 module.exports = {
-  ValidationError,
   ResourceNotFoundError,
   ConflictError,
   UnauthorizedError,
   BadRequestError,
   ForbiddenError,
+  ValidationError,
 };

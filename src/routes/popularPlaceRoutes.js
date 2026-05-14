@@ -1,5 +1,6 @@
 const express = require("express");
 const multer = require("multer");
+const path = require("path");
 
 const {
   createPopularPlaceController,
@@ -22,7 +23,7 @@ const router = express.Router();
 // Multer configuration for uploading PopularPlace images
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, "uploads/");
+    cb(null, path.resolve(__dirname, "../uploads")); 
   },
   filename: function (req, file, cb) {
     const timestamp = Date.now();
@@ -55,3 +56,4 @@ router.get("/all", [auth, admin], getAllPopularPlacesController);
 router.get("/", getAllActivePopularPlacesController);
 
 module.exports = router;
+

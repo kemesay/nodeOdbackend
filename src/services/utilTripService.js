@@ -1,3 +1,218 @@
+// const { HourlyCharterBook } = require("../models/HourlyCharterBook.js");
+// const { PointToPointBook } = require("../models/PointToPointBook.js");
+// const { AirportBook } = require("../models/airportBooking/AirportBook.js");
+// const { PaymentDetail } = require("../models/PaymentDetail.js");
+// const { Car } = require("../models/Car.js");
+// const { Op } = require("sequelize");
+// const { Gratuity } = require("../models/Gratuity.js");
+// const { AdditionalStopOnTheWay } = require("../models/booking/AdditionalStopOnTheWay.js");
+// const { AirportPickupPreference } = require("../models/airportBooking/AirportPickupPreference.js");
+// const { ExtraOption } = require("../models/ExtraOption.js");
+
+// // Define a function to search user bookings by user ID
+// async function searchUserBookingsByUserId(userId) {
+//   // Define options for querying
+//   const queryOptions = {
+//     where: {
+//       userId: userId,
+//       deletedAt: { [Op.is]: null }, // Filter out soft-deleted records
+//     },
+//     order: [["updatedAt", "DESC"]],
+//     attributes: { exclude: ["deletedAt"] },
+//     include: [
+//       {
+//         model: Car, // Include the Car model
+//         attributes: ["carImageUrl"],
+//       },
+//     ],
+//   };
+
+//   // Search point-to-point bookings
+//   const pointToPointBookings = await PointToPointBook.findAll(queryOptions);
+
+//   // Search hourly charter bookings
+//   const hourlyCharterBookings = await HourlyCharterBook.findAll(queryOptions);
+
+//   // Search airport bookings
+//   const airportBookings = await AirportBook.findAll(queryOptions);
+
+//   return {
+//     pointToPointBookings,
+//     hourlyCharterBookings,
+//     airportBookings,
+//   };
+// }
+
+// async function getPaymentDetailByUserId(userId) {
+//  const queryOptions = {
+//   where: {
+//     userId: userId,
+//     // deletedAt: { [Op.is]: null },
+//   },
+//   order: [["updatedAt"]],
+//   // attributes: { exclude: ["deletedAt"] },
+//  };
+ 
+//  const paymentDetail = await PaymentDetail.findAll(queryOptions);
+ 
+//  return paymentDetail;
+ 
+ 
+ 
+// }
+
+// async function calculateP2PTotalTripPrice(booking) {
+//   const { pricePerMile, minimumStartFee } = booking.Car;
+//   const percentage = booking.Gratuity.percentage;
+
+//   let carPrice =
+//     Number(pricePerMile * booking.distanceInMiles) + Number(minimumStartFee);
+  
+//   if (booking.tripType === "Round-Trip") carPrice *= 2;
+
+//   let additionalStopPrice = booking.AdditionalStopOnTheWay
+//     ? booking.AdditionalStopOnTheWay.additionalStopPrice
+//     : 0;
+
+//   let extraOptionsPrice = 0;
+//   if (booking.ExtraOptions) {
+//     if (booking.tripType === "Round-Trip") {
+
+//         for (const extraOption of Object.values(booking.ExtraOptions)) {
+//           extraOptionsPrice +=
+//             extraOption.pricePerItem *
+//             extraOption.PointToPointBookExtraOption.quantity;
+//         }
+//         extraOptionsPrice *= 2;
+
+//       } else {
+//         for (const extraOption of Object.values(booking.ExtraOptions)) {
+//           extraOptionsPrice +=
+//             extraOption.pricePerItem *
+//             extraOption.PointToPointBookExtraOption.quantity;
+//         }
+//       }
+
+    
+//   }
+
+//   const tripPrice =
+//     Number(carPrice) + Number(additionalStopPrice) + Number(extraOptionsPrice);
+
+//   const totalPrice = tripPrice + tripPrice * (percentage / 100);
+//   return Number(totalPrice.toFixed(2));
+// }
+
+// async function calculateHourlyCharterTotalTripPrice(booking) {
+//   const { pricePerHour, minimumStartFee } = booking.Car;
+//   const percentage = booking.Gratuity.percentage;
+
+//   let carPrice = pricePerHour * booking.selectedHours;
+
+//   let extraOptionsPrice = 0;
+//   if (booking.ExtraOptions) {
+//     for (const extraOption of Object.values(booking.ExtraOptions)) {
+//       extraOptionsPrice +=
+//         extraOption.pricePerItem *
+//         extraOption.HourlyCharterBookExtraOption.quantity;
+//     }
+//   }
+
+//   const tripPrice = Number(carPrice) + Number(extraOptionsPrice);
+//   const totalPrice = tripPrice + tripPrice * (percentage / 100);
+//   return Number(totalPrice.toFixed(2));
+// }
+
+// async function calculateAirportBookingTotalTripPrice(booking) {
+//   // First, ensure we have all necessary associations loaded
+//   if (!booking.Car || !booking.Gratuity) {
+//     // Reload the booking with all necessary associations
+//     booking = await AirportBook.findByPk(booking.airportBookId, {
+//       include: [
+//         {
+//           model: Car,
+//           attributes: ['pricePerMile', 'minimumStartFee'],
+//         },
+//         {
+//           model: Gratuity,
+//           attributes: ['percentage'],
+//         },
+//         {
+//           model: AdditionalStopOnTheWay,
+//           attributes: ['additionalStopPrice'],
+//         },
+//         {
+//           model: AirportPickupPreference,
+//           attributes: ['preferencePrice'],
+//         },
+//         {
+//           model: ExtraOption,
+//           through: {
+//             attributes: ['quantity'],
+//           },
+//         },
+//       ],
+//     });
+
+//     if (!booking || !booking.Car) {
+//       throw new Error('Unable to calculate price: Missing required car information');
+//     }
+//   }
+
+//   const { pricePerMile, minimumStartFee } = booking.Car;
+//   const percentage = booking.Gratuity ? booking.Gratuity.percentage : 0;
+
+//   let carPrice =
+//     Number(pricePerMile * booking.distanceInMiles) + Number(minimumStartFee);
+
+//   const isRoundTrip =
+//     booking.tripType === "Ride to the airport(round trip)" ||
+//     booking.tripType === "Ride from the airport(round trip)";
+//   if (isRoundTrip) carPrice *= 2;
+
+//   let additionalStopPrice = booking.AdditionalStopOnTheWay
+//     ? booking.AdditionalStopOnTheWay.additionalStopPrice
+//     : 0;
+
+//   let airportPickupPreferencePrice = booking.AirportPickupPreference
+//     ? booking.AirportPickupPreference.preferencePrice
+//     : 0;
+
+//   let extraOptionsPrice = 0;
+//   if (booking.ExtraOptions && booking.ExtraOptions.length > 0) {
+//     if (isRoundTrip) {
+//       booking.ExtraOptions.forEach(extraOption => {
+//         extraOptionsPrice +=
+//           extraOption.pricePerItem * extraOption.AirportBookExtraOption.quantity;
+//       });
+//       extraOptionsPrice *= 2;
+//     } else {
+//       booking.ExtraOptions.forEach(extraOption => {
+//         extraOptionsPrice +=
+//           extraOption.pricePerItem * extraOption.AirportBookExtraOption.quantity;
+//       });
+//     }
+//   }
+
+//   const tripPrice =
+//     Number(carPrice) +
+//     Number(additionalStopPrice) +
+//     Number(airportPickupPreferencePrice) +
+//     Number(extraOptionsPrice);
+
+//   const totalPrice = percentage ? tripPrice + tripPrice * (percentage / 100) : tripPrice;
+//   return Number(totalPrice.toFixed(2));
+// }
+
+// module.exports = {
+//   searchUserBookingsByUserId,
+//   calculateP2PTotalTripPrice,
+//   calculateHourlyCharterTotalTripPrice,
+//   calculateAirportBookingTotalTripPrice,
+//   getPaymentDetailByUserId,
+// };
+
+
 const { HourlyCharterBook } = require("../models/HourlyCharterBook.js");
 const { PointToPointBook } = require("../models/PointToPointBook.js");
 const { AirportBook } = require("../models/airportBooking/AirportBook.js");
@@ -99,7 +314,9 @@ async function calculateP2PTotalTripPrice(booking) {
   const tripPrice =
     Number(carPrice) + Number(additionalStopPrice) + Number(extraOptionsPrice);
 
-  const totalPrice = tripPrice + tripPrice * (percentage / 100);
+  const farePrice = Number(carPrice);
+
+  const totalPrice = percentage ? tripPrice + farePrice * (percentage / 100) : tripPrice;
   return Number(totalPrice.toFixed(2));
 }
 
@@ -119,7 +336,8 @@ async function calculateHourlyCharterTotalTripPrice(booking) {
   }
 
   const tripPrice = Number(carPrice) + Number(extraOptionsPrice);
-  const totalPrice = tripPrice + tripPrice * (percentage / 100);
+  const farePrice = Number(carPrice);
+  const totalPrice = percentage ? tripPrice + farePrice * (percentage / 100) : tripPrice;
   return Number(totalPrice.toFixed(2));
 }
 
@@ -199,8 +417,9 @@ async function calculateAirportBookingTotalTripPrice(booking) {
     Number(additionalStopPrice) +
     Number(airportPickupPreferencePrice) +
     Number(extraOptionsPrice);
+    const farePrice = Number(carPrice);
 
-  const totalPrice = percentage ? tripPrice + tripPrice * (percentage / 100) : tripPrice;
+  const totalPrice = percentage ? tripPrice + farePrice * (percentage / 100) : tripPrice;
   return Number(totalPrice.toFixed(2));
 }
 
@@ -211,3 +430,13 @@ module.exports = {
   calculateAirportBookingTotalTripPrice,
   getPaymentDetailByUserId,
 };
+
+
+
+
+
+
+
+
+
+

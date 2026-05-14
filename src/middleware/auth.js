@@ -21,20 +21,20 @@ module.exports = async function authenticateToken(req, res, next) {
   // const privateKey = process.env.JWT_PRIVATE_KEY;
   const privateKey = process.env.JWT_PRIVATE_KEY;
 
-        if (!privateKey)
-            throw new Error("JWT_PRIVATE_KEY environment variable is not set.");
+  if (!privateKey)
+    throw new Error("JWT_PRIVATE_KEY environment variable is not set.");
 
   try {
     const decode = jwt.verify(token, privateKey);
     const user = await findUserByEmailOrPhone(decode.username);
 
-        if (!user) throw new ResourceNotFoundError("Please login again and try.");
+    if (!user) throw new ResourceNotFoundError("Please login again and try.");
 
-        req.user = user;
-        next();
-    } catch (ex) {
-        if (ex instanceof jwt.TokenExpiredError)
-            throw new BadRequestError("Token has expired.");
-        throw new BadRequestError("Invalid token.");
-    }
+    req.user = user;
+    next();
+  } catch (ex) {
+    if (ex instanceof jwt.TokenExpiredError)
+      throw new BadRequestError("Token has expired.");
+    throw new BadRequestError("Invalid token.");
+  }
 };

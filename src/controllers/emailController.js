@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const { getEmailAssets } = require('../config/emailAssets');
 
 // Create transporter using cPanel email settings
 const transporter = nodemailer.createTransport({
@@ -11,14 +12,15 @@ const transporter = nodemailer.createTransport({
     },
 });
 
-// Create reusable logo header component
-const createLogoHeader = () => `
+// Create reusable logo header component using shared email assets
+const createLogoHeader = () => {
+    return `
     <div style="text-align: center; padding: 32px 0; background-color: #ffffff; margin-bottom: 20px; border-bottom: 2px solid #f0f0f0;">
-        <img src="https://odatransportation.com/static/media/ODA_Primary%20Logo.6715e0b164c507dbe1f2.png" 
-             alt="ODA Black Car Service Logo" 
-             style="max-width: 200px; height: auto;" />
+        <img src="https://odatransportation.com/static/media/Odaa%20Transportation%20-%20Logo_Primary%20Logo.391dbf01f07d5f1b361d.png"
+          alt="ODA Black Car Service Logo" style="max-width: 200px; height: auto;" />
     </div>
 `;
+};
 const sendEmail = async (req, res) => {
     try {
         const {

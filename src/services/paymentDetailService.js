@@ -47,6 +47,7 @@ async function addOrUpdatePaymentDetail(
 
     return newPaymentDetail;
   }
+
 }
 
 async function getPaymentDetail(creditCardNumber, expirationDate, securityCode, zipCode, cardOwnerName) {
@@ -75,6 +76,7 @@ async function findExistingCard(cardDetails) {
   });
 }
 
+
 async function handlePrimaryCardUpdate(userId, newPrimaryId = null) {
   if (!userId) return;
   
@@ -91,6 +93,37 @@ async function handlePrimaryCardUpdate(userId, newPrimaryId = null) {
     await currentPrimary.update({ isPrimary: false });
   }
 }
+
+// async function createPaymentDetail(cardDetails) {
+//   try {
+//     // If this is marked as primary, unset any existing primary cards for this user
+//     if (cardDetails.isPrimary && cardDetails.userId) {
+//       await PaymentDetail.update(
+//         { isPrimary: false },
+//         {
+//           where: {
+//             userId: cardDetails.userId,
+//             isPrimary: true
+//           }
+//         }
+//       );
+//     }
+
+//     const paymentDetail = await PaymentDetail.create({
+//       creditCardNumber: cardDetails.creditCardNumber,
+//       expirationDate: cardDetails.expirationDate,
+//       securityCode: cardDetails.securityCode,
+//       zipCode: cardDetails.zipCode,
+//       cardOwnerName: cardDetails.cardOwnerName,
+//       userId: cardDetails.userId || null,
+//       isPrimary: cardDetails.isPrimary || false
+//     });
+
+//     return paymentDetail;
+//   } catch (error) {
+//     throw new Error(`Failed to create payment detail: ${error.message}`);
+//   }
+// }
 
 async function createPaymentDetail(cardDetails) {
   // Check if identical card already exists
@@ -118,6 +151,14 @@ async function createPaymentDetail(cardDetails) {
   return paymentDetail;
 }
 
+// async function updatePaymentDetail(paymentDetailId, paymentDetailData) {
+//   const paymentDetail = await getPaymentDetailById(paymentDetailId);
+//   if (!paymentDetail) {
+//     throw new Error("Payment detail  with id ${paymentDetailId} not found");
+//   }
+//    return  await paymentDetail.update(paymentDetailData);
+// }
+
 async function updatePaymentDetail(paymentDetailId, paymentDetailData) {
   const paymentDetail = await getPaymentDetailById(paymentDetailId);
   if (!paymentDetail) {
@@ -137,7 +178,6 @@ async function updatePaymentDetail(paymentDetailId, paymentDetailData) {
 
   return await paymentDetail.update(paymentDetailData);
 }
-
 async function getPaymentDetails({
   page = 1,
   pageSize = 10,
@@ -166,7 +206,6 @@ async function deletePaymentDetail(paymentDetailId) {
   }
   await paymentDetail.destroy();
 }
-
 async function getPrimaryCard(userId) {
   if (!userId) {
     throw new ValidationError("User ID is required to fetch primary card");
@@ -185,7 +224,6 @@ async function getPrimaryCard(userId) {
 
   return primaryCard;
 }
-
 async function getFromExistingCards(paymentDetailId, userId) {
   if (!paymentDetailId || !userId) {
     throw new ValidationError("Payment detail ID and user ID are required");
