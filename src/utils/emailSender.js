@@ -438,8 +438,12 @@ async function paymentNotification(userEmail, data) {
   }
 }
 
-// Notify admin and user when new booking is placed
-async function bookingNotification(bookingType, booking) {
+/**
+ * Notify admin and user with the same reservation/fare tables as a new booking.
+ * @param {boolean} options.isUpdate - true after PATCH update (different subject & intro copy).
+ */
+async function sendBookingConfirmationAndAdminEmail(bookingType, booking, options = {}) {
+  const isUpdate = Boolean(options.isUpdate);
   try {
     const date = new Date();
     // Convert to Pacific Time
@@ -492,6 +496,7 @@ async function bookingNotification(bookingType, booking) {
       reservationDate: reservationDate,
       reservationTime: reservationTime,
       userEmail: userEmail,
+      isUpdate,
 
       contactDetails: {
         "Confirmation Number": booking.confirmationNumber,
@@ -530,23 +535,27 @@ async function bookingNotification(bookingType, booking) {
 
     const transporter = nodemailer.createTransport(smtpConfig);
 
-    // Configure email options for admin
+    const adminSubject = isUpdate
+      ? "Booking updated — admin notification"
+      : "New Booking Notification";
+    const userSubject = isUpdate
+      ? "Your booking was updated — ODA Transportation"
+      : "Booking Confirmation";
+
     const adminOptions = {
       from: fromEmail,
       to: adminEmail,
-      subject: "New Booking Notification",
+      subject: adminSubject,
       html: adminHtml,
     };
 
-    // Configure email options for user
     const userOptions = {
       from: fromEmail,
       to: userEmail,
-      subject: "Booking Confirmation",
+      subject: userSubject,
       html: userHtml,
     };
 
-    // Send emails
     const adminInfo = await transporter.sendMail(adminOptions);
     console.log("Admin Email sent:", adminInfo.response);
 
@@ -556,9 +565,21 @@ async function bookingNotification(bookingType, booking) {
     console.error("Error occurred:", error);
   }
 }
+
+/** Notify admin and user when a new booking is placed */
+async function bookingNotification(bookingType, booking) {
+  return sendBookingConfirmationAndAdminEmail(bookingType, booking, { isUpdate: false });
+}
+
+/** Notify admin and user after a booking is updated (same detail tables as confirmation). */
+async function bookingUpdateNotification(bookingType, booking) {
+  return sendBookingConfirmationAndAdminEmail(bookingType, booking, { isUpdate: true });
+}
+
 module.exports = {
   sendBookingApprovalEmail,
   sendResetPasswordEmail,
   bookingNotification,
+  bookingUpdateNotification,
   paymentNotification,
 };

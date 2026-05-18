@@ -303,7 +303,7 @@ const { Car } = require("../../models/Car.js");
 const { Gratuity } = require("../../models/Gratuity.js");
 const { getGratuityById } = require("../booking/gratuityService.js");
 
-const { bookingNotification } = require("../../utils/emailSender");
+const { bookingNotification, bookingUpdateNotification } = require("../../utils/emailSender");
 const { addOrUpdatePaymentDetail, getPrimaryCard, getFromExistingCards, createPaymentDetail } = require("../paymentDetailService.js");
 const { PaymentDetail } = require("../../models/PaymentDetail.js");
 const {
@@ -521,7 +521,9 @@ async function updatePointToPointBookForUser(pointToPointBookId, userId, updated
   const totalTripFee = await calculateP2PTotalTripPrice(reloaded);
   reloaded.totalTripFeeInDollars = totalTripFee;
   await reloaded.save();
-  return await getPointToPointBookById(pointToPointBook.pointToPointBookId);
+  const finalBook = await getPointToPointBookById(pointToPointBook.pointToPointBookId);
+  await bookingUpdateNotification("Point to point", finalBook);
+  return finalBook;
 }
 
 async function getPointToPointBooks({

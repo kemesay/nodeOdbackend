@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>New Booking Notification</title>
+  <title><%= typeof isUpdate !== 'undefined' && isUpdate ? 'Booking updated' : 'New Booking Notification' %></title>
 </head>
 
 <body>
@@ -20,13 +20,20 @@
           alt="ODA Black Car Service Logo" style="max-width: 200px; height: auto;" />
       </div>
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto">
-        <h2 style="color: green">New Booking Notification</h2>
+        <h2 style="color: green"><%= typeof isUpdate !== 'undefined' && isUpdate ? 'Booking updated' : 'New Booking Notification' %></h2>
         <p style="color: none">Dear Admin,</p>
+        <% if (typeof isUpdate !== 'undefined' && isUpdate) { %>
+        <p style="color: none">
+          A booking was updated. Review the details below (same layout as a new booking).
+          <a href="https://odatransportation.com">Log in to Admin Portal</a>
+        </p>
+        <% } else { %>
         <p style="color: none">
           A new booking has been successfully placed. Please log in to the admin
           portal to take the necessary actions.
           <a href="https://odatransportation.com">Log in to Admin Portal</a>
         </p>
+        <% } %>
         <!-- Contact Details -->
         <h3 style="color: white; background-color: black; padding: 5px">
           Contact Details:

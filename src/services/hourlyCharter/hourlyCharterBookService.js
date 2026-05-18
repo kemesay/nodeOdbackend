@@ -301,7 +301,7 @@ const {
   calculateHourlyCharterTotalTripPrice,
 } = require("../utilTripService.js");
 
-const { bookingNotification } = require("../../utils/emailSender");
+const { bookingNotification, bookingUpdateNotification } = require("../../utils/emailSender");
 const generateConfirmationNumber = require("../bookingUtils.js");
 
 async function createHourlyCharterBook(hourlyCharterBookData) {
@@ -511,7 +511,9 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       const totalTripFee = await calculateHourlyCharterTotalTripPrice(reloaded);
       reloaded.totalTripFeeInDollars = totalTripFee;
       await reloaded.save();
-      return await getHourlyCharterBookById(hourlyCharterBook.hourlyCharterBookId);
+      const finalBook = await getHourlyCharterBookById(hourlyCharterBook.hourlyCharterBookId);
+      await bookingUpdateNotification("Hourly Charter", finalBook);
+      return finalBook;
     }
 
     async function getHourlyCharterBooks({

@@ -377,7 +377,7 @@ const {
 
 const { calculateAirportBookingTotalTripPrice } = require("../utilTripService");
 
-const { bookingNotification } = require("../../utils/emailSender");
+const { bookingNotification, bookingUpdateNotification } = require("../../utils/emailSender");
 const generateConfirmationNumber = require("../bookingUtils.js");
 
 async function createAirportBook(airportBookData) {
@@ -661,7 +661,9 @@ async function updateAirportBookForUser(airportBookId, userId, updatedData, opts
   const totalTripFee = await calculateAirportBookingTotalTripPrice(reloaded);
   reloaded.totalTripFeeInDollars = totalTripFee;
   await reloaded.save();
-  return await getAirportBookById(airportBook.airportBookId);
+  const finalBook = await getAirportBookById(airportBook.airportBookId);
+  await bookingUpdateNotification("Airport Service", finalBook);
+  return finalBook;
 }
 
 async function updatePaymentStatus(airportBookId, paymentStatus) {
