@@ -183,7 +183,7 @@ const validateDiscountApplication = Joi.object({
 const validateAdminBookingApproval = Joi.object({
   bookingId: Joi.number().required(),
   bookingType: Joi.string()
-    .valid("P2P", "HOURLY_CHARTER", "AIRPORT")
+    .valid("P2P", "HOURLY", "HOURLY_CHARTER", "AIRPORT")
     .required(),
   action: Joi.string().valid("ACCEPTED", "REJECTED").required(),
   rejectionReason: Joi.string().when("action", {
@@ -195,7 +195,7 @@ const validateAdminBookingApproval = Joi.object({
 const validatePaymentUpdateReq = Joi.object({
   bookingId: Joi.number().required(),
   bookingType: Joi.string()
-    .valid("P2P", "HOURLY_CHARTER", "AIRPORT")
+    .valid("P2P", "HOURLY", "HOURLY_CHARTER", "AIRPORT")
     .required(),
 });
 

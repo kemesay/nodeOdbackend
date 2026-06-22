@@ -356,8 +356,24 @@ const { Car } = require("../../models/Car.js");
 const { getCarById } = require("../booking/carService.js");
 const { Airport } = require("../../models/airportBooking/Airport.js");
 const { getAirportById } = require("./airportService");
-const { addOrUpdatePaymentDetail, getPrimaryCard, getFromExistingCards, createPaymentDetail } = require("../paymentDetailService.js");
+const {
+  processBookingPayment,
+  reconcilePaymentOnBookingUpdate,
+} = require("../payments/bookingSquarePayment.js");
+const { signBookingRoomToken } = require("../../realtime/socketRoomToken.js");
 const { PaymentDetail } = require("../../models/PaymentDetail.js");
+
+const PAYMENT_DETAIL_SAFE_ATTRIBUTES = [
+  "paymentDetailId",
+  "cardBrand",
+  "last4",
+  "expMonth",
+  "expYear",
+  "cardOwnerName",
+  "zipCode",
+  "isPrimary",
+  "squareCardId",
+];
 const { Gratuity } = require("../../models/Gratuity.js");
 const { getGratuityById } = require("../booking/gratuityService.js");
 
@@ -396,6 +412,8 @@ async function createAirportBook(airportBookData) {
     isGuestBooking,
     userId,
     cardDetails,
+    square,
+    squareCardId,
     ...otherData
   } = airportBookData;
 
@@ -442,59 +460,6 @@ async function createAirportBook(airportBookData) {
   });
 
   try {
-    let paymentDetail;
-
-    switch (paymentMethod) {
-      case 'PRIMARY_CARD':
-        try {
-          paymentDetail = await getPrimaryCard(userId);
-        } catch (error) {
-          throw new ValidationError(error.message);
-        }
-        break;
-
-      case 'EXISTING_CARD':
-        if (!paymentDetailId) {
-          throw new ValidationError("Payment detail ID is required for existing card");
-        }
-        try {
-          paymentDetail = await getFromExistingCards(paymentDetailId, userId);
-        } catch (error) {
-          throw new ValidationError(error.message);
-        }
-        break;
-
-      case 'NEW_CARD':
-        if (!cardDetails) {
-          throw new ValidationError("Card details are required for new card payment");
-        }
-
-        if (!cardDetails.creditCardNumber || !cardDetails.expirationDate ||
-          !cardDetails.securityCode || !cardDetails.zipCode ||
-          !cardDetails.cardOwnerName) {
-          throw new ValidationError("Incomplete card details provided");
-        }
-
-        try {
-          paymentDetail = await createPaymentDetail({
-            ...cardDetails,
-            userId: isGuestBooking ? null : userId
-          });
-        } catch (error) {
-          throw new ValidationError(`Failed to create payment detail: ${error.message}`);
-        }
-        break;
-
-      default:
-        throw new ValidationError("Invalid payment method");
-    }
-
-    if (!paymentDetail) {
-      throw new ValidationError("Failed to process payment details");
-    }
-
-    await airportBook.setPaymentDetail(paymentDetail);
-
     if (carId) {
       const existingCar = await getCarById(carId);
       if (existingCar) {
@@ -552,9 +517,40 @@ async function createAirportBook(airportBookData) {
     airportBook.totalTripFeeInDollars = totalTripFee;
     await airportBook.save();
 
-    await bookingNotification("Airport Service", airportBook);
+    const paymentResult = await processBookingPayment({
+      bookingType: "AIRPORT",
+      bookingId: airportBook.airportBookId,
+      confirmationNumber,
+      amountDollars: totalTripFee,
+      paymentMethod,
+      square,
+      squareCardId,
+      paymentDetailId,
+      userId,
+      isGuestBooking,
+      cardDetails,
+    });
 
-    return await getAirportBookById(airportBook.airportBookId);
+    if (paymentResult.paymentDetail) {
+      await airportBook.setPaymentDetail(paymentResult.paymentDetail);
+    }
+    airportBook.paymentStatus = paymentResult.paymentStatus;
+    await airportBook.save();
+
+    const full = await getAirportBookById(airportBook.airportBookId);
+    await bookingNotification("Airport Service", full);
+    return {
+      ...full.toJSON(),
+      realtime: {
+        provider: "socket.io",
+        event: "payment.transaction.updated",
+        roomToken: signBookingRoomToken({
+          bookingType: "AIRPORT",
+          bookingId: full.airportBookId,
+          userId: full.userId,
+        }),
+      },
+    };
 
   } catch (error) {
     await airportBook.destroy();
@@ -573,6 +569,7 @@ async function updateAirportBook(airportBookId, updatedData) {
 async function updateAirportBookForUser(airportBookId, userId, updatedData, opts = {}) {
   const isAdmin = Boolean(opts.isAdmin);
   const airportBook = await getAirportBookById(airportBookId);
+  const previousTotal = Number(airportBook.totalTripFeeInDollars) || 0;
 
   if (!isAdmin) {
     if (!airportBook.userId || Number(airportBook.userId) !== Number(userId)) {
@@ -592,7 +589,7 @@ async function updateAirportBookForUser(airportBookId, userId, updatedData, opts
   }
 
   // Handle extra options update (replace)
-  const { extraOptions, ...data } = updatedData || {};
+  const { extraOptions, square, squareCardId, ...data } = updatedData || {};
   if (Array.isArray(extraOptions)) {
     await AirportBookExtraOption.destroy({ where: { airportBookId } });
     const validExtraOptions = extraOptions.filter(
@@ -662,6 +659,30 @@ async function updateAirportBookForUser(airportBookId, userId, updatedData, opts
   reloaded.totalTripFeeInDollars = totalTripFee;
   await reloaded.save();
   const finalBook = await getAirportBookById(airportBook.airportBookId);
+
+  const newTotal = Number(finalBook.totalTripFeeInDollars);
+  if (
+    previousTotal > 0 &&
+    newTotal > 0 &&
+    Math.abs(previousTotal - newTotal) > 0.009
+  ) {
+    const paymentUpdate = await reconcilePaymentOnBookingUpdate({
+      bookingType: "AIRPORT",
+      bookingId: finalBook.airportBookId,
+      confirmationNumber: finalBook.confirmationNumber,
+      newAmountDollars: newTotal,
+      paymentMethod: finalBook.paymentMethod,
+      paymentDetailId: finalBook.paymentDetailId,
+      userId: finalBook.userId,
+      square,
+      squareCardId,
+    });
+    if (paymentUpdate?.paymentStatus) {
+      finalBook.paymentStatus = paymentUpdate.paymentStatus;
+      await finalBook.save();
+    }
+  }
+
   await bookingUpdateNotification("Airport Service", finalBook);
   return finalBook;
 }
@@ -763,13 +784,7 @@ async function getAirportBookById(airportBookId) {
     include: [
       {
         model: PaymentDetail,
-        attributes: [
-          "creditCardNumber",
-          "expirationDate",
-          "securityCode",
-          "zipCode",
-          "cardOwnerName",
-        ],
+        attributes: PAYMENT_DETAIL_SAFE_ATTRIBUTES,
       },
       {
         model: Gratuity,
@@ -816,6 +831,7 @@ async function getAirportBookById(airportBookId) {
       {
         model: ExtraOption,
         attributes: ["extraOptionId", "name", "description", "pricePerItem"],
+        through: { attributes: ["quantity"] },
       },
     ],
   });

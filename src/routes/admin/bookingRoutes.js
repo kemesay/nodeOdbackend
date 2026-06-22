@@ -4,6 +4,7 @@ const router = express.Router();
 const {
   adminBookingApprovalController,
   paymentStatusUpdateController,
+  getAdminBookingRoomTokenController,
 } = require("../../controllers/admin/bookingController.js");
 
 const {
@@ -25,6 +26,12 @@ router.post(
   "/update-payment-status",
   [auth, admin, validate(validatePaymentUpdateReq)],
   paymentStatusUpdateController
+);
+
+router.get(
+  "/realtime/:bookingType(airport|p2p|hourly)/:bookingId",
+  [auth, admin],
+  getAdminBookingRoomTokenController
 );
 
 module.exports = router;

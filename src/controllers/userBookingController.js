@@ -11,6 +11,7 @@ const {
 const {
   updateHourlyCharterBookForUser,
 } = require("../services/hourlyCharter/hourlyCharterBookService.js");
+const { getBookingRoomToken } = require("../services/bookingRealtimeService.js");
 
 async function searchUserBookingsController(req, res, _next) {
   const {userId} = req.user;
@@ -47,9 +48,26 @@ async function updateMyHourlyCharterBookingController(req, res, _next) {
   return res.json(updated);
 }
 
+async function getMyBookingRoomTokenController(req, res, next) {
+  try {
+    const { userId } = req.user;
+    const { bookingType, bookingId } = req.params;
+    const payload = await getBookingRoomToken({
+      segment: bookingType,
+      bookingId,
+      userId,
+      isAdmin: false,
+    });
+    return res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   searchUserBookingsController,
   updateMyAirportBookingController,
   updateMyPointToPointBookingController,
   updateMyHourlyCharterBookingController,
+  getMyBookingRoomTokenController,
 };

@@ -369,9 +369,10 @@ const PaymentDetail = sequelize.define(
     },
     creditCardNumber: {
       type: DataTypes.STRING(19), // Up to 19 digits for all card types
-      allowNull: false,
+      allowNull: true,
       validate: {
         isValidCardNumber(value) {
+          if (value == null || value === "") return;
           const cleanValue = value.replace(/\s/g, "");
           const cardInfo = creditCardType(cleanValue);
           if (!cardInfo.length) {
@@ -386,9 +387,10 @@ const PaymentDetail = sequelize.define(
     },
     expirationDate: {
       type: DataTypes.STRING(5), // MM/YY format
-      allowNull: false,
+      allowNull: true,
       validate: {
         isExpirationDate(value) {
+          if (value == null || value === "") return;
           if (!/^\d{2}\/\d{2}$/.test(value)) {
             throw new Error("Expiration date must be in MM/YY format");
           }
@@ -397,10 +399,13 @@ const PaymentDetail = sequelize.define(
     },
     securityCode: {
       type: DataTypes.STRING(4),
-      allowNull: false,
+      allowNull: true,
       validate: {
         isSecurityCode(value) {
-          const cardType = creditCardType(this.creditCardNumber);
+          if (value == null || value === "") return;
+          const pan = this.creditCardNumber;
+          if (pan == null || pan === "") return;
+          const cardType = creditCardType(pan);
           if (!cardType.length) throw new Error("Invalid card number for CVC check");
           const type = cardType[0].type;
           const expectedLength = type === "american-express" ? 4 : 3;
@@ -441,7 +446,31 @@ const PaymentDetail = sequelize.define(
     userId: {
       type: DataTypes.BIGINT,
       allowNull: true,  // Allow null for guest bookings
-    }
+    },
+    squareCustomerId: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+    },
+    squareCardId: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+    },
+    cardBrand: {
+      type: DataTypes.STRING(32),
+      allowNull: true,
+    },
+    last4: {
+      type: DataTypes.STRING(4),
+      allowNull: true,
+    },
+    expMonth: {
+      type: DataTypes.SMALLINT,
+      allowNull: true,
+    },
+    expYear: {
+      type: DataTypes.SMALLINT,
+      allowNull: true,
+    },
   },
   {
     sequelize,
@@ -520,7 +549,21 @@ const validatePaymentDetail = Joi.object({
   }),
 });
 
+/** Square wallet save — no legacy PAN fields */
+const validateSquareCardSave = Joi.object({
+  sourceId: Joi.string().required().messages({
+    "any.required": "Square sourceId is required",
+  }),
+  verificationToken: Joi.string().allow("", null),
+  cardOwnerName: Joi.string().min(2).max(50).required(),
+  zipCode: Joi.string()
+    .pattern(/^\d{5}(-\d{4})?$/)
+    .required(),
+  isPrimary: Joi.boolean().optional(),
+});
+
 module.exports = {
   validatePaymentDetail,
+  validateSquareCardSave,
   PaymentDetail,
 };

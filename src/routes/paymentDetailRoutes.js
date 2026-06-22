@@ -71,6 +71,7 @@ const router = express.Router();
 
 const {
   validatePaymentDetailController,
+  validateSquareCardController,
   createPaymentDetailController,
   updatePaymentDetailController,
   addOrUpdatePaymentDetailController,
@@ -81,7 +82,7 @@ const {
   setPrimaryCardController,
 } = require("../controllers/paymentDetailController.js");
 
-const { validatePaymentDetail } = require("../models/PaymentDetail.js");
+const { validatePaymentDetail, validateSquareCardSave } = require("../models/PaymentDetail.js");
 
 const auth = require("../middleware/auth.js");
 const validate = require("../middleware/validateReqBody.js");
@@ -91,6 +92,12 @@ router.post(
   "/validate-card",
   [auth, validate(validatePaymentDetail)],
   validatePaymentDetailController
+);
+
+router.post(
+  "/validate-square-card",
+  [auth, validate(validateSquareCardSave)],
+  validateSquareCardController
 );
 
 router.post(

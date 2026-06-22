@@ -141,7 +141,8 @@ const {
   getPaymentDetailById,
   deletePaymentDetail,
   setPrimaryCard,
-  getFromExistingCards
+  getFromExistingCards,
+  saveSquareCardOnFile,
 } = require("../services/paymentDetailService.js");
 const {
   getPaymentDetailByUserId,
@@ -183,11 +184,49 @@ async function setPrimaryCardController(req, res, next) {
       message: "Primary card updated successfully",
       card: {
         paymentDetailId: updatedCard.paymentDetailId,
-        lastFourDigits: updatedCard.creditCardNumber.slice(-4),
+        lastFourDigits:
+          updatedCard.last4 ||
+          (updatedCard.creditCardNumber
+            ? updatedCard.creditCardNumber.slice(-4)
+            : "****"),
         cardOwnerName: updatedCard.cardOwnerName,
         isPrimary: updatedCard.isPrimary,
-        expirationDate: updatedCard.expirationDate
-      }
+        expirationDate: updatedCard.expirationDate,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function validateSquareCardController(req, res, next) {
+  try {
+    if (!req.user?.userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { sourceId, cardOwnerName, zipCode, isPrimary } = req.body;
+    const paymentDetail = await saveSquareCardOnFile(req.user.userId, {
+      sourceId,
+      cardOwnerName,
+      zipCode,
+      isPrimary,
+      email: req.user.email,
+    });
+
+    return res.status(201).json({
+      ...successResponse("Card saved with Square"),
+      paymentDetailId: paymentDetail.paymentDetailId,
+      paymentDetail: {
+        paymentDetailId: paymentDetail.paymentDetailId,
+        cardBrand: paymentDetail.cardBrand,
+        last4: paymentDetail.last4,
+        expMonth: paymentDetail.expMonth,
+        expYear: paymentDetail.expYear,
+        cardOwnerName: paymentDetail.cardOwnerName,
+        isPrimary: paymentDetail.isPrimary,
+        squareCardId: paymentDetail.squareCardId,
+      },
     });
   } catch (error) {
     next(error);
@@ -240,14 +279,19 @@ async function deletePaymentDetailController(req, res, _next) {
 }         
 
 async function getPaymentDetailByUserIdController(req, res, _next) {
-  const { userId } = req.user;
-  const response = await getPaymentDetailByUserId(userId);
+  // Guard: auth middleware should set req.user, but avoid crashing with 500.
+  if (!req.user || !req.user.userId) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  const response = await getPaymentDetailByUserId(req.user.userId);
   return res.json(response);
 }
 
 
 module.exports = {
   validatePaymentDetailController,
+  validateSquareCardController,
   addOrUpdatePaymentDetailController,
   createPaymentDetailController,
   updatePaymentDetailController,
@@ -255,5 +299,5 @@ module.exports = {
   getPaymentDetailByIdController,
   getPaymentDetailByUserIdController,
   deletePaymentDetailController,
-  setPrimaryCardController
+  setPrimaryCardController,
 };

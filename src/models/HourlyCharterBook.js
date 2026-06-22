@@ -416,7 +416,7 @@ const HourlyCharterBook = sequelize.define(
       },
     },
     paymentMethod: {
-      type: DataTypes.ENUM("PRIMARY_CARD", "EXISTING_CARD", "NEW_CARD"),
+      type: DataTypes.STRING(32),
       allowNull: false,
     },
     passengerCellPhone: {
@@ -466,6 +466,7 @@ const HourlyCharterBook = sequelize.define(
       type: DataTypes.ENUM(
         "NOT_PAID",
         "AWAITING_PAYMENT",
+        "AUTHORIZED",
         "PARTIALLY_PAID",
         "PAID",
         "PENDING_REFUND",
@@ -618,26 +619,61 @@ const validateHourlyCharterBook = Joi.object({
   bookingFor: Joi.string().valid("Myself", "SomeoneElse").required(),
   passengerFullName: Joi.string().min(2).max(100).required(),
   paymentMethod: Joi.string()
-    .valid("PRIMARY_CARD", "EXISTING_CARD", "NEW_CARD")
-    .default("NEW_CARD"),
+    .valid(
+      "PRIMARY_CARD",
+      "EXISTING_CARD",
+      "NEW_CARD",
+      "SQUARE_NEW_CARD",
+      "SQUARE_SAVED_CARD"
+    )
+    .default("SQUARE_NEW_CARD"),
+  square: Joi.when("paymentMethod", {
+    is: "SQUARE_NEW_CARD",
+    then: Joi.object({
+      sourceId: Joi.string().required(),
+      verificationToken: Joi.string().allow("", null),
+    }).required(),
+    otherwise: Joi.forbidden(),
+  }),
+  squareCardId: Joi.when("paymentMethod", {
+    is: "SQUARE_SAVED_CARD",
+    then: Joi.string().required(),
+    otherwise: Joi.forbidden(),
+  }),
   passengerEmail: Joi.string().email().max(255).required(),
   passengerCellPhone: Joi.string()
     .pattern(/^[0-9]{10,15}$/)
     .message("Please provide a valid guest phone number.")
     .required(),
 
-  //Payment info
-  cardDetails: Joi.when('paymentMethod', {
-    is: 'NEW_CARD',
+  cardDetails: Joi.when("paymentMethod", {
+    is: "NEW_CARD",
     then: cardDetailsSchema.required(),
-    otherwise: Joi.forbidden()
+    otherwise: Joi.forbidden(),
   }),
-  paymentDetailId: Joi.when('paymentMethod', {
-    is: 'EXISTING_CARD',
-    then: Joi.number().required(),
-    otherwise: Joi.forbidden()
-  })
-});
+  paymentDetailId: Joi.when("paymentMethod", {
+    is: Joi.valid("EXISTING_CARD", "SQUARE_SAVED_CARD"),
+    then: Joi.number().when("paymentMethod", {
+      is: "EXISTING_CARD",
+      then: Joi.required(),
+      otherwise: Joi.optional(),
+    }),
+    otherwise: Joi.forbidden(),
+  }),
+})
+  .custom((value, helpers) => {
+    const { isLegacyPaymentProvider } = require("../config/paymentConfig.js");
+    if (
+      !isLegacyPaymentProvider() &&
+      value.paymentMethod === "NEW_CARD" &&
+      value.cardDetails
+    ) {
+      return helpers.message(
+        "Raw cardDetails are deprecated. Use SQUARE_NEW_CARD with square.sourceId."
+      );
+    }
+    return value;
+  });
 
 /**
  * User update schema (partial). Payment fields and status fields are intentionally excluded.
@@ -666,6 +702,11 @@ const validateHourlyCharterBookUpdate = Joi.object({
   passengerCellPhone: Joi.string()
     .pattern(/^[0-9]{10,15}$/)
     .message("Please provide a valid guest phone number."),
+  square: Joi.object({
+    sourceId: Joi.string().required(),
+    verificationToken: Joi.string().allow("", null),
+  }).optional(),
+  squareCardId: Joi.string().optional(),
 }).min(1);
 
 module.exports = {

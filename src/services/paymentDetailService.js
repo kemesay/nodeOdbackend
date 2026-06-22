@@ -2,6 +2,12 @@ const { sequelize } = require("../config/database"); // Adjust path as needed
 const { Op } = require("sequelize");
 const { PaymentDetail } = require("../models/PaymentDetail.js");
 const { ValidationError, ResourceNotFoundError } = require("../errors/CustomErrors.js");
+const {
+  createSquareCustomer,
+  createCardOnFile,
+  getCustomerIdForCard,
+} = require("./payments/squarePaymentService.js");
+const { isSquarePaymentProvider } = require("../config/paymentConfig.js");
 
 async function addOrUpdatePaymentDetail(
   creditCardNumber,
@@ -243,6 +249,103 @@ async function getFromExistingCards(paymentDetailId, userId) {
   return card;
 }
 
+/**
+ * Square requires customer_id when charging a card on file (ccof:...).
+ */
+async function resolveSquareCustomerId({ userId, paymentDetail, squareCardId }) {
+  if (paymentDetail?.squareCustomerId) {
+    return paymentDetail.squareCustomerId;
+  }
+
+  if (userId) {
+    const sibling = await PaymentDetail.findOne({
+      where: { userId, squareCustomerId: { [Op.ne]: null } },
+      order: [["updatedAt", "DESC"]],
+    });
+    if (sibling?.squareCustomerId) {
+      if (paymentDetail?.paymentDetailId) {
+        await paymentDetail
+          .update({ squareCustomerId: sibling.squareCustomerId })
+          .catch(() => {});
+      }
+      return sibling.squareCustomerId;
+    }
+  }
+
+  const onFileId = squareCardId || paymentDetail?.squareCardId;
+  if (onFileId && String(onFileId).startsWith("ccof:")) {
+    const customerId = await getCustomerIdForCard(onFileId);
+    if (paymentDetail?.paymentDetailId && customerId) {
+      await paymentDetail.update({ squareCustomerId: customerId }).catch(() => {});
+    }
+    return customerId;
+  }
+
+  throw new ValidationError(
+    "Saved card is missing Square customer linkage. Re-add the card in Payment Methods."
+  );
+}
+
+/**
+ * Save a card using Square Web/Mobile SDK nonce (no PAN stored).
+ */
+async function saveSquareCardOnFile(userId, data) {
+  if (!isSquarePaymentProvider()) {
+    throw new ValidationError("Square payments are not enabled");
+  }
+
+  const { sourceId, cardOwnerName, zipCode, isPrimary, email } = data;
+  if (!sourceId || !cardOwnerName || !zipCode) {
+    throw new ValidationError("sourceId, cardOwnerName, and zipCode are required");
+  }
+
+  let squareCustomerId = null;
+  const existingWithCustomer = await PaymentDetail.findOne({
+    where: { userId, squareCustomerId: { [Op.ne]: null } },
+  });
+  if (existingWithCustomer?.squareCustomerId) {
+    squareCustomerId = existingWithCustomer.squareCustomerId;
+  } else {
+    const nameParts = String(cardOwnerName).trim().split(/\s+/);
+    squareCustomerId = await createSquareCustomer({
+      emailAddress: email || `user${userId}@guest.odatransportation.local`,
+      givenName: nameParts[0] || "Cardholder",
+      familyName: nameParts.slice(1).join(" ") || "User",
+      referenceId: userId,
+    });
+  }
+
+  const card = await createCardOnFile({
+    customerId: squareCustomerId,
+    sourceId,
+    cardholderName: cardOwnerName,
+    postalCode: zipCode,
+    referenceId: userId,
+  });
+
+  if (isPrimary) {
+    await handlePrimaryCardUpdate(userId);
+  }
+
+  const paymentDetail = await PaymentDetail.create({
+    userId,
+    squareCustomerId,
+    squareCardId: card.squareCardId,
+    cardBrand: card.cardBrand,
+    last4: card.last4,
+    expMonth: card.expMonth,
+    expYear: card.expYear,
+    cardOwnerName,
+    zipCode,
+    isPrimary: Boolean(isPrimary),
+    creditCardNumber: null,
+    expirationDate: null,
+    securityCode: null,
+  });
+
+  return paymentDetail;
+}
+
 async function setPrimaryCard(paymentDetailId, userId) {
   const transaction = await sequelize.transaction();
   try {
@@ -290,5 +393,7 @@ module.exports = {
   deletePaymentDetail,
   getPrimaryCard,
   getFromExistingCards,
-  setPrimaryCard
+  setPrimaryCard,
+  saveSquareCardOnFile,
+  resolveSquareCustomerId,
 };

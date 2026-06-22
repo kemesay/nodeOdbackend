@@ -523,7 +523,7 @@ const AirportBook = sequelize.define(
       },
     },
     paymentMethod: {
-      type: DataTypes.ENUM("PRIMARY_CARD", "EXISTING_CARD", "NEW_CARD"),
+      type: DataTypes.STRING(32),
       allowNull: false,
     },
     passengerCellPhone: {
@@ -568,6 +568,7 @@ const AirportBook = sequelize.define(
       type: DataTypes.ENUM(
         "NOT_PAID",
         "AWAITING_PAYMENT",
+        "AUTHORIZED",
         "PARTIALLY_PAID",
         "PAID",
         "PENDING_REFUND",
@@ -737,8 +738,27 @@ const validateAirportBook = Joi.object({
   isGuestBooking: Joi.boolean().default(false),
   bookingFor: Joi.string().valid("Myself", "SomeoneElse").default("Myself"),
   paymentMethod: Joi.string()
-    .valid("PRIMARY_CARD", "EXISTING_CARD", "NEW_CARD")
-    .default("NEW_CARD"),
+    .valid(
+      "PRIMARY_CARD",
+      "EXISTING_CARD",
+      "NEW_CARD",
+      "SQUARE_NEW_CARD",
+      "SQUARE_SAVED_CARD"
+    )
+    .default("SQUARE_NEW_CARD"),
+  square: Joi.when("paymentMethod", {
+    is: "SQUARE_NEW_CARD",
+    then: Joi.object({
+      sourceId: Joi.string().required(),
+      verificationToken: Joi.string().allow("", null),
+    }).required(),
+    otherwise: Joi.forbidden(),
+  }),
+  squareCardId: Joi.when("paymentMethod", {
+    is: "SQUARE_SAVED_CARD",
+    then: Joi.string().required(),
+    otherwise: Joi.forbidden(),
+  }),
   airline: Joi.string().allow(""),
   arrivalFlightNumber: Joi.string().allow(""),
   returnAirline: Joi.string().allow(""),
@@ -755,10 +775,14 @@ const validateAirportBook = Joi.object({
   pickupPreferenceId: Joi.number().integer().allow(null),
   additionalStopId: Joi.number().integer().allow(null),
   additionalStopOnTheWayDescription: Joi.string().allow(""),
-  paymentDetailId: Joi.when('paymentMethod', {
-    is: 'EXISTING_CARD',
-    then: Joi.number().required(),
-    otherwise: Joi.forbidden()
+  paymentDetailId: Joi.when("paymentMethod", {
+    is: Joi.valid("EXISTING_CARD", "SQUARE_SAVED_CARD"),
+    then: Joi.number().when("paymentMethod", {
+      is: "EXISTING_CARD",
+      then: Joi.required(),
+      otherwise: Joi.optional(),
+    }),
+    otherwise: Joi.forbidden(),
   }),
   returnPickupDateTime: Joi.string()
     .regex(dateFormat)
@@ -771,12 +795,26 @@ const validateAirportBook = Joi.object({
       then: Joi.required(),
       otherwise: Joi.allow(null),
     }),
-  cardDetails: Joi.when('paymentMethod', {
-    is: 'NEW_CARD',
+  cardDetails: Joi.when("paymentMethod", {
+    is: "NEW_CARD",
     then: cardDetailsSchema.required(),
-    otherwise: Joi.forbidden()
+    otherwise: Joi.forbidden(),
+  }),
+})
+  .custom((value, helpers) => {
+    const { isLegacyPaymentProvider } = require("../../config/paymentConfig.js");
+    if (
+      !isLegacyPaymentProvider() &&
+      value.paymentMethod === "NEW_CARD" &&
+      value.cardDetails
+    ) {
+      return helpers.message(
+        "Raw cardDetails are deprecated. Use SQUARE_NEW_CARD with square.sourceId from Square SDK."
+      );
+    }
+    return value;
   })
-}).custom((value, helpers) => {
+  .custom((value, helpers) => {
   const id = value.airportId;
   const hasCatalogAirport =
     id !== undefined && id !== null && id !== "" && Number(id) > 0;
@@ -851,6 +889,11 @@ const validateAirportBookUpdate = Joi.object({
   passengerCellPhone: Joi.string()
     .pattern(/^[0-9]{10,15}$/)
     .message("Please provide a valid guest phone number."),
+  square: Joi.object({
+    sourceId: Joi.string().required(),
+    verificationToken: Joi.string().allow("", null),
+  }).optional(),
+  squareCardId: Joi.string().optional(),
 }).min(1).custom((value, helpers) => {
   // Only enforce the "either airportId OR airportLocation*" rule if the update tries
   // to modify any of the airport fields.

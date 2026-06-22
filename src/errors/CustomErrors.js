@@ -59,6 +59,16 @@ class ForbiddenError extends Error {
   }
 }
 
+class PaymentError extends Error {
+  status;
+
+  constructor(message = "Payment failed") {
+    super(message);
+    this.name = "PaymentError";
+    this.status = 402;
+  }
+}
+
 module.exports = {
   ResourceNotFoundError,
   ConflictError,
@@ -66,4 +76,5 @@ module.exports = {
   BadRequestError,
   ForbiddenError,
   ValidationError,
+  PaymentError,
 };

@@ -304,8 +304,23 @@ const { Gratuity } = require("../../models/Gratuity.js");
 const { getGratuityById } = require("../booking/gratuityService.js");
 
 const { bookingNotification, bookingUpdateNotification } = require("../../utils/emailSender");
-const { addOrUpdatePaymentDetail, getPrimaryCard, getFromExistingCards, createPaymentDetail } = require("../paymentDetailService.js");
+const {
+  processBookingPayment,
+  reconcilePaymentOnBookingUpdate,
+} = require("../payments/bookingSquarePayment.js");
 const { PaymentDetail } = require("../../models/PaymentDetail.js");
+
+const PAYMENT_DETAIL_SAFE_ATTRIBUTES = [
+  "paymentDetailId",
+  "cardBrand",
+  "last4",
+  "expMonth",
+  "expYear",
+  "cardOwnerName",
+  "zipCode",
+  "isPrimary",
+  "squareCardId",
+];
 const {
   AdditionalStopOnTheWay,
 } = require("../../models/booking/AdditionalStopOnTheWay.js");
@@ -315,6 +330,7 @@ const {
 
 const { calculateP2PTotalTripPrice } = require("../utilTripService.js");
 const generateConfirmationNumber = require("../bookingUtils.js");
+const { signBookingRoomToken } = require("../../realtime/socketRoomToken.js");
 const { AirportBook } = require("../../models/airportBooking/AirportBook.js");
 
 async function createPointToPointBook(pointToPointBookData) {
@@ -328,6 +344,8 @@ async function createPointToPointBook(pointToPointBookData) {
     isGuestBooking,
     userId,
     cardDetails,
+    square,
+    squareCardId,
     ...otherData
   } = pointToPointBookData;
 
@@ -344,60 +362,6 @@ async function createPointToPointBook(pointToPointBookData) {
   });
 
   try {
-    let paymentDetail;
-
-    switch (paymentMethod) {
-      case 'PRIMARY_CARD':
-        try {
-          paymentDetail = await getPrimaryCard(userId);
-        } catch (error) {
-          throw new ValidationError(error.message);
-        }
-        break;
-
-      case 'EXISTING_CARD':
-        if (!paymentDetailId) {
-          throw new ValidationError("Payment detail ID is required for existing card");
-        }
-        try {
-          paymentDetail = await getFromExistingCards(paymentDetailId, userId);
-        } catch (error) {
-          throw new ValidationError(error.message);
-        }
-        break;
-
-      case 'NEW_CARD':
-        if (!cardDetails) {
-          throw new ValidationError("Card details are required for new card payment");
-        }
-
-        if (!cardDetails.creditCardNumber || !cardDetails.expirationDate ||
-          !cardDetails.securityCode || !cardDetails.zipCode ||
-          !cardDetails.cardOwnerName) {
-          throw new ValidationError("Incomplete card details provided");
-        }
-
-        try {
-          paymentDetail = await createPaymentDetail({
-            ...cardDetails,
-            userId: isGuestBooking ? null : userId
-          });
-        } catch (error) {
-          throw new ValidationError(`Failed to create payment detail: ${error.message}`);
-        }
-        break;
-
-      default:
-        throw new ValidationError("Invalid payment method");
-    }
-
-    if (!paymentDetail) {
-      throw new ValidationError("Failed to process payment details");
-    }
-    
-    await pointToPointBook.setPaymentDetail(paymentDetail);
-
-
   if (carId) {
     const existingCar = await getCarById(carId);
     if (existingCar) {
@@ -444,10 +408,41 @@ async function createPointToPointBook(pointToPointBookData) {
   pointToPointBook.totalTripFeeInDollars = totalTripFee;
   pointToPointBook = await pointToPointBook.save();
 
-  //notify admin and user
-  bookingNotification("Point to point", pointToPointBook);
+  const paymentResult = await processBookingPayment({
+    bookingType: "P2P",
+    bookingId: pointToPointBook.pointToPointBookId,
+    confirmationNumber,
+    amountDollars: totalTripFee,
+    paymentMethod,
+    square,
+    squareCardId,
+    paymentDetailId,
+    userId,
+    isGuestBooking,
+    cardDetails,
+  });
 
-  return  await getPointToPointBookById(pointToPointBook.pointToPointBookId);
+  if (paymentResult.paymentDetail) {
+    await pointToPointBook.setPaymentDetail(paymentResult.paymentDetail);
+  }
+  pointToPointBook.paymentStatus = paymentResult.paymentStatus;
+  await pointToPointBook.save();
+
+  const full = await getPointToPointBookById(pointToPointBook.pointToPointBookId);
+  bookingNotification("Point to point", full);
+  return {
+    ...full.toJSON(),
+    realtime: {
+      provider: "socket.io",
+      event: "payment.transaction.updated",
+      // short-lived signed token to join the specific booking room
+      roomToken: signBookingRoomToken({
+        bookingType: "P2P",
+        bookingId: full.pointToPointBookId,
+        userId: full.userId,
+      }),
+    },
+  };
 }
 catch(error){
 if (error instanceof ValidationError){
@@ -465,6 +460,7 @@ async function updatePointToPointBook(pointToPointBookId, updatedData) {
 async function updatePointToPointBookForUser(pointToPointBookId, userId, updatedData, opts = {}) {
   const isAdmin = Boolean(opts.isAdmin);
   const pointToPointBook = await getPointToPointBookById(pointToPointBookId);
+  const previousTotal = Number(pointToPointBook.totalTripFeeInDollars) || 0;
 
   if (!isAdmin) {
     if (!pointToPointBook.userId || Number(pointToPointBook.userId) !== Number(userId)) {
@@ -483,7 +479,7 @@ async function updatePointToPointBookForUser(pointToPointBookId, userId, updated
     }
   }
 
-  const { extraOptions, ...data } = updatedData || {};
+  const { extraOptions, square, squareCardId, ...data } = updatedData || {};
   if (Array.isArray(extraOptions)) {
     await PointToPointBookExtraOption.destroy({ where: { pointToPointBookId } });
     const validExtraOptions = extraOptions.filter(
@@ -522,6 +518,29 @@ async function updatePointToPointBookForUser(pointToPointBookId, userId, updated
   reloaded.totalTripFeeInDollars = totalTripFee;
   await reloaded.save();
   const finalBook = await getPointToPointBookById(pointToPointBook.pointToPointBookId);
+  const newTotal = Number(finalBook.totalTripFeeInDollars);
+  if (
+    previousTotal > 0 &&
+    newTotal > 0 &&
+    Math.abs(previousTotal - newTotal) > 0.009
+  ) {
+    const paymentUpdate = await reconcilePaymentOnBookingUpdate({
+      bookingType: "P2P",
+      bookingId: finalBook.pointToPointBookId,
+      confirmationNumber: finalBook.confirmationNumber,
+      newAmountDollars: newTotal,
+      paymentMethod: finalBook.paymentMethod,
+      paymentDetailId: finalBook.paymentDetailId,
+      userId: finalBook.userId,
+      square,
+      squareCardId,
+    });
+    if (paymentUpdate?.paymentStatus) {
+      finalBook.paymentStatus = paymentUpdate.paymentStatus;
+      await finalBook.save();
+    }
+  }
+
   await bookingUpdateNotification("Point to point", finalBook);
   return finalBook;
 }
@@ -614,13 +633,7 @@ async function getPointToPointBookById(pointToPointBookId) {
     include: [
       {
         model: PaymentDetail,
-        attributes: [
-          "creditCardNumber",
-          "expirationDate",
-          "securityCode",
-          "zipCode",
-          "cardOwnerName",
-        ],
+        attributes: PAYMENT_DETAIL_SAFE_ATTRIBUTES,
       },
       {
         model: Gratuity,
@@ -651,6 +664,7 @@ async function getPointToPointBookById(pointToPointBookId) {
       {
         model: ExtraOption,
         attributes: ["extraOptionId", "name", "description", "pricePerItem"],
+        through: { attributes: ["quantity"] },
       },
     ],
   });

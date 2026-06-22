@@ -7,6 +7,10 @@ const { Sequelize } = require("sequelize");
 //   username: "odatra5_dev",
 //   database: "odatra5_dev_db",
 //   password: "0fewNqU_,qdj",
+//   dialectOptions: {
+//     // Remote host does not offer TLS; MariaDB/MySQL client defaults require SSL.
+//     ssl: false,
+//   },
 // });
 
 const sequelize = new Sequelize({

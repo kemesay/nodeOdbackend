@@ -1,5 +1,8 @@
+const express = require("express");
 const { json } = require("express");
 const errorHandler = require("../middleware/errorHandler.js");
+const squareWebhookRoutes = require("../routes/squareWebhookRoutes.js");
+const squareConfigRoutes = require("../routes/squareConfigRoutes.js");
 const users = require("../routes/user/userRoutes.js");
 const auth = require("../routes/user/authRoutes.js");
 const cars = require("../routes/carRoutes.js");
@@ -17,8 +20,15 @@ const paymentDetailRoute = require("../routes/paymentDetailRoutes.js");
 const footerContentRoutes = require("../routes/companyInfo/footerContentRoutes.js");
 const socialMediaRoutes = require("../routes/companyInfo/socialMediaRoutes.js");
 const gratuityRoutes = require("../routes/gratuityRoutes.js");
+const bookingQuoteRoutes = require("../routes/bookingQuoteRoutes.js");
 
 module.exports = function setupRoutes(app) {
+  app.use(
+    "/api/v1/webhooks/square",
+    express.raw({ type: "application/json" }),
+    squareWebhookRoutes
+  );
+  app.use("/api/v1/payments/square", squareConfigRoutes);
   app.use(json());
   app.use("/api/v1/users", users);
   app.use("/api/v1/auth", auth);
@@ -26,6 +36,7 @@ module.exports = function setupRoutes(app) {
   app.use("/api/v1/popular-places", popularPlaceRoutes);
   app.use("/api/v1/extra-options", extraOptions);
   app.use("/api/v1/gratuities", gratuityRoutes);
+  app.use("/api/v1/bookings", bookingQuoteRoutes);
 
   app.use("/api/v1/additional-stops", additionalStopOnTheWay);
   app.use("/api/v1/airports", airports);

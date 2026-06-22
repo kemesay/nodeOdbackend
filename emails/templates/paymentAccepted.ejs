@@ -68,6 +68,11 @@
             We are pleased to inform you that your payment has been successfully
             processed. Here are the details:
           </p>
+          <% if (typeof confirmationNumber !== 'undefined' && confirmationNumber) { %>
+          <p><strong>Confirmation Number:</strong>
+            <%= confirmationNumber %>
+          </p>
+          <% } %>
           <p><strong>Booking Type:</strong>
             <%= bookingType %>
           </p>

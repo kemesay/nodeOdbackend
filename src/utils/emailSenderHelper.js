@@ -3,28 +3,135 @@ const {
   getAirportTerminalName,
   getAirportTerminalAddress,
 } = require("./airportBookingDisplay.js");
+const {
+  calculatePointToPointFare,
+  calculateHourlyCharterFare,
+  calculateAirportFare,
+  isRoundTripTripType,
+  roundMoney,
+  asMoney,
+} = require("./bookingFareCalculator.js");
 
 function formatDateTime(dateString) {
   const date = new Date(dateString);
-  
-  const formattedDate = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Los_Angeles',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
+
+  const formattedDate = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   }).format(date);
 
-  const formattedTime = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Los_Angeles',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true
+  const formattedTime = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
   }).format(date);
 
   return {
     date: formattedDate,
-    time: `${formattedTime}`
+    time: `${formattedTime}`,
   };
+}
+
+function formatUsd(amount) {
+  return `$${roundMoney(amount).toFixed(2)}`;
+}
+
+function gratuityEmailLabel(booking, gratuityAmount) {
+  const pct = asMoney(booking.Gratuity?.percentage);
+  const desc = booking.Gratuity?.description || "";
+  if (pct <= 0) return "Will tip in cash";
+  const label = desc || `${pct}%`;
+  return `${formatUsd(gratuityAmount)} (${label})`;
+}
+
+function applyDiscountToFareDetails(fareDetails, booking) {
+  if (booking.hasDiscountApplied && asMoney(booking.discountAmountInDollars) > 0) {
+    fareDetails.Discount = `-${formatUsd(booking.discountAmountInDollars)}`;
+  }
+  return fareDetails;
+}
+
+function extrasPerLegFromTotal(extraOptionsTotal, roundTrip) {
+  const total = asMoney(extraOptionsTotal);
+  if (total <= 0) return 0;
+  return roundTrip ? roundMoney(total / 2) : total;
+}
+
+function buildP2PFareDetails(booking) {
+  const { breakdown } = calculatePointToPointFare(booking);
+  const roundTrip = booking.tripType === "Round-Trip";
+  const extrasPerLeg = extrasPerLegFromTotal(
+    breakdown.extraOptionsPrice,
+    roundTrip
+  );
+
+  const fareDetails = {
+    Fare: formatUsd(breakdown.legCarFare),
+    "Child Car Seat Fee": formatUsd(extrasPerLeg),
+    Gratuity: gratuityEmailLabel(booking, breakdown.gratuity),
+  };
+
+  if (roundTrip) {
+    fareDetails["Return Fare"] = formatUsd(breakdown.legCarFare);
+    fareDetails["Return Child Car Seat Fee"] = formatUsd(extrasPerLeg);
+  }
+
+  if (breakdown.additionalStopPrice > 0) {
+    fareDetails["Stop On The Way Fare"] = formatUsd(
+      breakdown.additionalStopPrice
+    );
+  }
+
+  return applyDiscountToFareDetails(fareDetails, booking);
+}
+
+function buildHourlyFareDetails(booking) {
+  const { breakdown } = calculateHourlyCharterFare(booking);
+
+  const fareDetails = {
+    Fare: formatUsd(breakdown.carFare),
+    "Child Car Seat Fee": formatUsd(breakdown.extraOptionsPrice),
+    Gratuity: gratuityEmailLabel(booking, breakdown.gratuity),
+  };
+
+  return applyDiscountToFareDetails(fareDetails, booking);
+}
+
+function buildAirportFareDetails(booking) {
+  const { breakdown } = calculateAirportFare(booking);
+  const roundTrip = isRoundTripTripType(booking.tripType);
+  const extrasPerLeg = extrasPerLegFromTotal(
+    breakdown.extraOptionsPrice,
+    roundTrip
+  );
+
+  const fareDetails = {
+    Fare: formatUsd(breakdown.legCarFare),
+    "Child Car Seat Fee": formatUsd(extrasPerLeg),
+    Gratuity: gratuityEmailLabel(booking, breakdown.gratuity),
+  };
+
+  if (roundTrip) {
+    fareDetails["Return Fare"] = formatUsd(breakdown.legCarFare);
+    fareDetails["Return Child Car Seat Fee"] = formatUsd(extrasPerLeg);
+  }
+
+  if (breakdown.airportPickupPreferencePrice > 0) {
+    fareDetails["Airport Pickup Preference Fare"] = formatUsd(
+      breakdown.airportPickupPreferencePrice
+    );
+  }
+
+  if (breakdown.additionalStopPrice > 0) {
+    fareDetails["Stop On The Way Fare"] = formatUsd(
+      breakdown.additionalStopPrice
+    );
+  }
+
+  return applyDiscountToFareDetails(fareDetails, booking);
 }
 
 function getP2PReservationDetails(bookingType, booking) {
@@ -33,19 +140,17 @@ function getP2PReservationDetails(bookingType, booking) {
 
   const reservationDetails = {
     "Service Type": `${bookingType} (${booking.tripType})`,
-    "Travel By": booking.Car.carName,
+    "Travel By": booking.Car?.carName || "",
 
     "Pickup Address": booking.pickupPhysicalAddress,
     "Drop off Address": booking.dropoffPhysicalAddress,
     "Travel Date on": pickupDateTime.date,
     "Travel Time at": pickupDateTime.time,
 
-    // Placeholder to maintain order
     "Return Pickup Address": null,
     "Return Drop off Address": null,
     "Return Date on": returnDateTime.date,
     "Return Time on": returnDateTime.time,
-
 
     "Passengers/Bags":
       booking.numberOfPassengers + "/" + booking.numberOfSuitcases,
@@ -60,7 +165,6 @@ function getP2PReservationDetails(bookingType, booking) {
     delete reservationDetails["Stop on The Way Description"];
   }
 
-  // For Round-Trip
   const tripType = booking.tripType;
   if (tripType && tripType === "Round-Trip") {
     reservationDetails["Return Pickup Address"] =
@@ -76,76 +180,27 @@ function getP2PReservationDetails(bookingType, booking) {
     delete reservationDetails["Return Time on"];
   }
 
-  //ExtraOptions
-  const extraOptions = booking.ExtraOptions;
+  const extraOptions = booking.ExtraOptions || [];
   for (const extraOption of extraOptions) {
-    reservationDetails[extraOption.name] =
-      extraOption.PointToPointBookExtraOption.quantity;
+    const qty = extraOption?.PointToPointBookExtraOption?.quantity;
+    if (qty != null) {
+      reservationDetails[extraOption.name] = qty;
+    }
   }
 
   reservationDetails["Travel Instruction"] = booking.specialInstructions;
 
-  //Fare Details
-  const { pricePerMile, minimumStartFee } = booking.Car;
-  const { percentage, description } = booking.Gratuity;
-
-  let carPrice =
-    Number(pricePerMile * booking.distanceInMiles) + Number(minimumStartFee);
-
-  let extraOptionsPrice = 0;
-  for (const extraOption of Object.values(extraOptions)) {
-    extraOptionsPrice +=
-      extraOption.pricePerItem *
-      extraOption.PointToPointBookExtraOption.quantity;
-  }
-
-  const tripPrice = booking.totalTripFeeInDollars;
-  let gratuity = `$${Number((carPrice)*percentage/100).toFixed(2)} (${description})`;
-  if (tripType === "Round-Trip") {
-    gratuity = `$${Number(((carPrice)*percentage/100)*2).toFixed(2)} (${description})`;
-  }
-  if (percentage == 0) {
-    gratuity = "Will tip in cash";
-  }
-
-  const fareDetails = {
-    Fare: `$${Number(carPrice).toFixed(2)}`,
-    "Return Fare": `$${Number(carPrice).toFixed(2)}`,
-    "Stop On The Way Fare": null,
-    "Child Car Seat Fee": `$${Number(extraOptionsPrice).toFixed(2)}`,
-    "Return Child Car Seat Fee": `$${Number(extraOptionsPrice).toFixed(2)}`,
-    Gratuity: gratuity,
-  };
-
-  // Add discount if applicable
-  if (booking.hasDiscountApplied && booking.discountAmountInDollars > 0) {
-    fareDetails["Discount"] = `-$${Number(booking.discountAmountInDollars).toFixed(2)}`;
-  }
-
-  if (!(tripType === "Round-Trip")) delete fareDetails["Return Fare"];
-  if (!(tripType === "Round-Trip")) delete fareDetails["Return Child Car Seat Fee"];
-
-
-  const additionalStopOnTheWay = booking.AdditionalStopOnTheWay;
-  if (additionalStopOnTheWay) {
-    fareDetails[
-      "Stop On The Way Fare"
-    ] = `$${additionalStopOnTheWay.additionalStopPrice}`;
-  } else {
-    delete fareDetails["Stop On The Way Fare"];
-  }
+  const fareDetails = buildP2PFareDetails(booking);
 
   return { reservationDetails, fareDetails };
 }
 
-//============================================================================================================
 function getHourlyCharterDetails(bookingType, booking) {
   const pickupDateTime = formatDateTime(booking.pickupDateTime);
 
   const reservationDetails = {
     "Service Type": bookingType,
-    "Travel By": booking.Car.carName,
-    // "Selected Hour": booking.selectedHours,
+    "Travel By": booking.Car?.carName || "",
 
     "Pickup Address": booking.pickupPhysicalAddress,
     "Drop off Address": booking.dropoffPhysicalAddress,
@@ -157,52 +212,21 @@ function getHourlyCharterDetails(bookingType, booking) {
       booking.numberOfPassengers + "/" + booking.numberOfSuitcases,
   };
 
-  //ExtraOptions
-  const extraOptions = booking.ExtraOptions;
+  const extraOptions = booking.ExtraOptions || [];
   for (const extraOption of extraOptions) {
-    reservationDetails[extraOption.name] =
-      extraOption.HourlyCharterBookExtraOption.quantity;
+    const qty = extraOption?.HourlyCharterBookExtraOption?.quantity;
+    if (qty != null) {
+      reservationDetails[extraOption.name] = qty;
+    }
   }
 
   reservationDetails["Travel Instruction"] = booking.specialInstructions;
   reservationDetails["Selected Hour"] = booking.selectedHours;
 
-  //Fare Details
-  const { pricePerHour, minimumStartFee } = booking.Car;
-  const { percentage, description } = booking.Gratuity;
-
-  // const carPrice = Number(pricePerHour * booking.selectedHours) + Number(minimumStartFee);
-  const carPrice = Number(pricePerHour * booking.selectedHours);
-
-
-  let extraOptionsPrice = 0;
-  for (const extraOption of Object.values(extraOptions)) {
-    extraOptionsPrice +=
-      extraOption.pricePerItem *
-      extraOption.HourlyCharterBookExtraOption.quantity;
-  }
-
-  const tripPrice = booking.totalTripFeeInDollars;
-  let gratuity = `$${Number((carPrice)*percentage/100).toFixed(2)} (${description})`;
-  if (percentage == 0) {
-    gratuity = "Will tip in cash";
-  }
-
-  const fareDetails = {
-    Fare: `$${Number(carPrice).toFixed(2)}`,
-    "Child Car Seat Fee": `$${Number(extraOptionsPrice).toFixed(2)}`,
-    Gratuity: gratuity,
-  };
-
-  // Add discount if applicable
-  if (booking.hasDiscountApplied && booking.discountAmountInDollars > 0) {
-    fareDetails["Discount"] = `-$${Number(booking.discountAmountInDollars).toFixed(2)}`;
-  }
+  const fareDetails = buildHourlyFareDetails(booking);
 
   return { reservationDetails, fareDetails };
 }
-
-//==========================================================================================================
 
 function getAirportServiceDetails(bookingType, booking) {
   const pickupDateTime = formatDateTime(booking.pickupDateTime);
@@ -213,19 +237,17 @@ function getAirportServiceDetails(bookingType, booking) {
 
   const reservationDetails = {
     "Service Type": `${bookingType} (${booking.tripType})`,
-    "Travel By": booking.Car.carName,
+    "Travel By": booking.Car?.carName || "",
 
     "Pickup Address": null,
     "Drop off Address": null,
     "Travel Date on": pickupDateTime.date,
     "Travel Time at": pickupDateTime.time,
 
-    // Placeholder to maintain order
     "Return Pickup Address": null,
     "Return Drop off Address": null,
     "Return Date on": returnDateTime.date,
     "Return Time at": returnDateTime.time,
-
 
     "Airport Name": airportTerminalName,
     "Airport Address": airportTerminalAddress,
@@ -244,37 +266,21 @@ function getAirportServiceDetails(bookingType, booking) {
   if (tripType === "Ride from the airport(round trip)") {
     reservationDetails["Pickup Address"] = airportTerminalName;
     reservationDetails["Drop off Address"] = booking.accommodationAddress;
-    reservationDetails["Travel Date on"] = pickupDateTime.date;
-    reservationDetails["Travel Time at"] = pickupDateTime.time;
-
-
     reservationDetails["Return Pickup Address"] = booking.accommodationAddress;
     reservationDetails["Return Drop off Address"] = airportTerminalName;
     reservationDetails["Return Date on"] = returnDateTime.date;
     reservationDetails["Return Time at"] = returnDateTime.time;
-
-
   } else if (tripType === "Ride to the airport(round trip)") {
     reservationDetails["Pickup Address"] = booking.accommodationAddress;
     reservationDetails["Drop off Address"] = airportTerminalName;
-    reservationDetails["Travel Date on"] = pickupDateTime.date;
-    reservationDetails["Travel Time at"] = pickupDateTime.time;
-
-
-
     reservationDetails["Return Pickup Address"] = airportTerminalName;
     reservationDetails["Return Drop off Address"] =
       booking.accommodationAddress;
     reservationDetails["Return Date on"] = returnDateTime.date;
     reservationDetails["Return Time at"] = returnDateTime.time;
-
   } else if (tripType === "Ride to the airport(one way)") {
     reservationDetails["Pickup Address"] = booking.accommodationAddress;
     reservationDetails["Drop off Address"] = airportTerminalName;
-    reservationDetails["Travel Date on"] = pickupDateTime.date;
-    reservationDetails["Travel Time at"] = pickupDateTime.time;
-
-
     delete reservationDetails["Return Pickup Address"];
     delete reservationDetails["Return Drop off Address"];
     delete reservationDetails["Return Date on"];
@@ -282,17 +288,12 @@ function getAirportServiceDetails(bookingType, booking) {
   } else {
     reservationDetails["Pickup Address"] = airportTerminalName;
     reservationDetails["Drop off Address"] = booking.accommodationAddress;
-    reservationDetails["Travel Date on"] = pickupDateTime.date;
-    reservationDetails["Travel Time at"] = pickupDateTime.time;
-
-
     delete reservationDetails["Return Pickup Address"];
     delete reservationDetails["Return Drop off Address"];
     delete reservationDetails["Return Date on"];
     delete reservationDetails["Return Time at"];
   }
 
-  // For Round-Trip
   const airportPickupPreference = booking.AirportPickupPreference;
   if (airportPickupPreference) {
     reservationDetails["Airport Pickup Preference"] =
@@ -324,7 +325,6 @@ function getAirportServiceDetails(bookingType, booking) {
   } else {
     delete reservationDetails["Return Flight Number"];
   }
-  
 
   if (booking.additionalStopOnTheWayDescription) {
     reservationDetails["Stop on The Way Description"] =
@@ -333,80 +333,23 @@ function getAirportServiceDetails(bookingType, booking) {
     delete reservationDetails["Stop on The Way Description"];
   }
 
-  //ExtraOptions
-  const extraOptions = booking.ExtraOptions;
+  const extraOptions = booking.ExtraOptions || [];
   for (const extraOption of extraOptions) {
-    reservationDetails[extraOption.name] =
-      extraOption.AirportBookExtraOption.quantity;
+    const qty = extraOption?.AirportBookExtraOption?.quantity;
+    if (qty != null) {
+      reservationDetails[extraOption.name] = qty;
+    }
   }
 
   reservationDetails["Travel Instruction"] = booking.specialInstructions;
 
-  //====================Fare Details==========================
-  const { pricePerMile, minimumStartFee } = booking.Car;
-  const { percentage, description } = booking.Gratuity;
-
-  let carPrice =
-    Number(pricePerMile * booking.distanceInMiles) + Number(minimumStartFee);
-
-  let extraOptionsPrice = 0;
-  for (const extraOption of Object.values(extraOptions)) {
-    extraOptionsPrice +=
-      extraOption.pricePerItem * extraOption.AirportBookExtraOption.quantity;
-  }
-
-  const tripPrice = booking.totalTripFeeInDollars;
-  const isRoundTrip =
-  booking.tripType === "Ride to the airport(round trip)" ||
-  booking.tripType === "Ride from the airport(round trip)";
-  
-  let gratuity = `$${Number((carPrice)*percentage/100).toFixed(2)} (${description})`;
-  if (isRoundTrip) {
-    gratuity = `$${Number(((carPrice)*percentage/100)*2).toFixed(2)} (${description})`;
-  }
-  
-  if (percentage == 0) {
-    gratuity = "Will tip in cash";
-  }
-
-  const fareDetails = {
-      Fare: `$${Number(carPrice).toFixed(2)}`,
-    "Return Fare": `$${Number(carPrice).toFixed(2)}`,
-    "Stop On The Way Fare": "$0",
-    "Airport Pickup Preference Fare": "$0",
-    "Child Car Seat Fee": `$${Number(extraOptionsPrice).toFixed(2)}`,
-    "Return Child Car Seat Fee": `$${Number(extraOptionsPrice).toFixed(2)}`,
-    Gratuity: gratuity,
-  };
-
-  // Add discount if applicable
-  if (booking.hasDiscountApplied && booking.discountAmountInDollars > 0) {
-    fareDetails["Discount"] = `-$${Number(booking.discountAmountInDollars).toFixed(2)}`;
-  }
-
-
-  if (!isRoundTrip) delete fareDetails["Return Fare"];
-  if (!isRoundTrip) delete fareDetails["Return Child Car Seat Fee"];
-
-  if (airportPickupPreference) {
-    fareDetails[
-      "Airport Pickup Preference Fare"
-    ] = `$${airportPickupPreference.preferencePrice}`;
-  }
-
-  const additionalStopOnTheWay = booking.AdditionalStopOnTheWay;
-  if (additionalStopOnTheWay) {
-    fareDetails[
-      "Stop On The Way Fare"
-    ] = `$${additionalStopOnTheWay.additionalStopPrice}`;
-  } else {
-    delete fareDetails["Stop On The Way Fare"];
-  }
+  const fareDetails = buildAirportFareDetails(booking);
 
   return { reservationDetails, fareDetails };
 }
 
 module.exports = {
+  formatDateTime,
   getP2PReservationDetails,
   getHourlyCharterDetails,
   getAirportServiceDetails,

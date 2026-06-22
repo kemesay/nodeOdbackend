@@ -6,6 +6,7 @@ const {
   updateMyAirportBookingController,
   updateMyPointToPointBookingController,
   updateMyHourlyCharterBookingController,
+  getMyBookingRoomTokenController,
 } = require("../controllers/userBookingController.js");
 
 const {
@@ -24,6 +25,12 @@ const validate = require("../middleware/validateReqBody.js");
 
 //TODO: add auth middleware
 router.get("/mine", auth,searchUserBookingsController);
+
+router.get(
+  "/mine/realtime/:bookingType(airport|p2p|hourly)/:bookingId",
+  auth,
+  getMyBookingRoomTokenController
+);
 
 // User-scoped update endpoints (ownership enforced in service)
 router.patch(

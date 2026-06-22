@@ -167,14 +167,33 @@ const {
   getAirportServiceDetails,
 } = require("../../utils/emailSenderHelper");
 const { getAirportTerminalName } = require("../../utils/airportBookingDisplay.js");
+const {
+  handleAdminBookingPayment,
+  handleAdminTakePayment,
+} = require("../payments/bookingSquarePayment.js");
+const {
+  normalizePaymentBookingType,
+  isHourlyPaymentBookingType,
+  isP2PPaymentBookingType,
+  isAirportPaymentBookingType,
+} = require("../../utils/paymentBookingType.js");
 
 async function adminBookingApproval(bookingReq) {
   const { bookingId, bookingType, action, rejectionReason } = bookingReq;
+  const ledgerBookingType = normalizePaymentBookingType(bookingType);
 
-  const booking = await getBooking(bookingId, bookingType);
+  let booking = await getBooking(bookingId, bookingType);
 
   booking.bookingStatus = action;
   await booking.save();
+
+  booking = await handleAdminBookingPayment({
+    booking,
+    bookingType: ledgerBookingType || bookingType,
+    action,
+    captureAmountDollars: booking.totalTripFeeInDollars,
+  });
+  booking = await getBooking(bookingId, bookingType);
   await sendBookingApprovalEmailService(
     booking,
     bookingType,
@@ -187,25 +206,33 @@ async function adminBookingApproval(bookingReq) {
 
 async function paymentStatusUpdate(bookingReq) {
   const { bookingId, bookingType } = bookingReq;
+  const ledgerBookingType = normalizePaymentBookingType(bookingType);
 
-  const booking = await getBooking(bookingId, bookingType);
+  let booking = await getBooking(bookingId, bookingType);
 
-  booking.paymentStatus = "PAID";
-  await booking.save();
+  booking = await handleAdminTakePayment({
+    booking,
+    bookingType: ledgerBookingType || bookingType,
+    captureAmountDollars: booking.totalTripFeeInDollars,
+  });
+
+  booking = await getBooking(bookingId, bookingType);
   await sendPaymentStatusUpdateEmailService(booking, bookingType);
 
   return booking;
 }
 
 async function getBooking(bookingId, bookingType) {
-  let booking;
-
-  if (bookingType === "P2P") booking = await getPointToPointBookById(bookingId);
-  else if (bookingType === "AIRPORT")
-    booking = await getAirportBookById(bookingId);
-  else booking = await getHourlyCharterBookById(bookingId);
-
-  return booking;
+  if (isP2PPaymentBookingType(bookingType)) {
+    return getPointToPointBookById(bookingId);
+  }
+  if (isAirportPaymentBookingType(bookingType)) {
+    return getAirportBookById(bookingId);
+  }
+  if (isHourlyPaymentBookingType(bookingType)) {
+    return getHourlyCharterBookById(bookingId);
+  }
+  return getHourlyCharterBookById(bookingId);
 }
 
 async function sendBookingApprovalEmailService(
@@ -217,10 +244,10 @@ async function sendBookingApprovalEmailService(
   let bookingTypeFullName;
   let pickupLocation;
 
-  if (bookingType === "P2P") {
+  if (isP2PPaymentBookingType(bookingType) || bookingType === "P2P") {
     bookingTypeFullName = "Poin To Point";
     pickupLocation = booking.pickupPhysicalAddress;
-  } else if (bookingType === "AIRPORT") {
+  } else if (isAirportPaymentBookingType(bookingType) || bookingType === "AIRPORT") {
     bookingTypeFullName = "Airport Booking Service";
     if (
       booking.tripType === "Ride to the airport(one way)" ||
@@ -260,17 +287,17 @@ async function sendBookingApprovalEmailService(
 
     let reservationDetails, fareDetails;
     try {
-      if (bookingType === "P2P") {
+      if (isP2PPaymentBookingType(bookingType) || bookingType === "P2P") {
         ({ reservationDetails, fareDetails } = getP2PReservationDetails(
           "Point to point",
           booking
         ));
-      } else if (bookingType === "HOURLY_CHARTER") {
+      } else if (isHourlyPaymentBookingType(bookingType) || bookingType === "HOURLY_CHARTER") {
         ({ reservationDetails, fareDetails } = getHourlyCharterDetails(
           "Hourly Charter",
           booking
         ));
-      } else if (bookingType === "AIRPORT") {
+      } else if (isAirportPaymentBookingType(bookingType) || bookingType === "AIRPORT") {
         ({ reservationDetails, fareDetails } = getAirportServiceDetails(
           "Airport Service",
           booking
@@ -316,10 +343,10 @@ async function sendPaymentStatusUpdateEmailService(booking, bookingType) {
   let bookingTypeFullName;
   let pickupLocation;
 
-  if (bookingType === "P2P") {
+  if (isP2PPaymentBookingType(bookingType) || bookingType === "P2P") {
     bookingTypeFullName = "Poin To Point";
     pickupLocation = booking.pickupPhysicalAddress;
-  } else if (bookingType === "AIRPORT") {
+  } else if (isAirportPaymentBookingType(bookingType) || bookingType === "AIRPORT") {
     bookingTypeFullName = "Airport Booking Service";
     if (
       booking.tripType === "Ride to the airport(one way)" ||
@@ -336,17 +363,15 @@ async function sendPaymentStatusUpdateEmailService(booking, bookingType) {
 
   const userEmail = booking.passengerEmail;
   const passengerFullName = booking.passengerFullName;
+  const pickupDateTime = formatDateTime(booking.pickupDateTime);
 
-  console.log("========================================");
-  console.log(pickupLocation);
-  console.log(booking.totalTripFeeInDollars);
-  // Prepare data for email templates
   const data = {
     bookingType: bookingTypeFullName,
     name: passengerFullName,
-    totalTripFee: booking.totalTripFeeInDollars,
-    pickupLocation: pickupLocation,
-    pickupDate: booking.pickupDateTime,
+    confirmationNumber: booking.confirmationNumber,
+    totalTripFee: Number(booking.totalTripFeeInDollars).toFixed(2),
+    pickupLocation,
+    pickupDate: `${pickupDateTime.date} at ${pickupDateTime.time}`,
   };
 
   await paymentNotification(userEmail, data);

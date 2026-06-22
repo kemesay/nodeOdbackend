@@ -286,17 +286,36 @@
 //     };
 
 
-const { Op, ValidationError } = require("sequelize");
+const { Op } = require("sequelize");
 const { HourlyCharterBook } = require("../../models/HourlyCharterBook.js");
-const { ResourceNotFoundError } = require("../../errors/CustomErrors.js");
+const {
+  ResourceNotFoundError,
+  ValidationError,
+} = require("../../errors/CustomErrors.js");
 const { getCarById } = require("../booking/carService.js");
 const HourlyCharterBookExtraOption = require("../../models/HourlyCharterBookExtraOption.js");
 const { ExtraOption } = require("../../models/ExtraOption.js");
 const { Car } = require("../../models/Car.js");
 const { Gratuity } = require("../../models/Gratuity.js");
 const { getGratuityById } = require("../booking/gratuityService.js");
-const { addOrUpdatePaymentDetail, getPrimaryCard, getFromExistingCards, createPaymentDetail } = require("../paymentDetailService.js");
+const {
+  processBookingPayment,
+  reconcilePaymentOnBookingUpdate,
+} = require("../payments/bookingSquarePayment.js");
+const { signBookingRoomToken } = require("../../realtime/socketRoomToken.js");
 const { PaymentDetail } = require("../../models/PaymentDetail.js");
+
+const PAYMENT_DETAIL_SAFE_ATTRIBUTES = [
+  "paymentDetailId",
+  "cardBrand",
+  "last4",
+  "expMonth",
+  "expYear",
+  "cardOwnerName",
+  "zipCode",
+  "isPrimary",
+  "squareCardId",
+];
 const {
   calculateHourlyCharterTotalTripPrice,
 } = require("../utilTripService.js");
@@ -318,6 +337,8 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
     paymentDetailId,
     userId,
     cardDetails,
+    square,
+    squareCardId,
     isGuestBooking,
     ...otherData
   } = hourlyCharterBookData;
@@ -344,60 +365,6 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
   });
 
   try {
-
-    let paymentDetail;
-
-    switch (paymentMethod) {
-      case 'PRIMARY_CARD':
-        try {
-          paymentDetail = await getPrimaryCard(userId);
-        } catch (error) {
-          throw new ValidationError(error.message);
-        }
-        break;
-
-      case 'EXISTING_CARD':
-        if (!paymentDetailId) {
-          throw new ValidationError("Payment detail ID is required for existing card");
-        }
-        try {
-          paymentDetail = await getFromExistingCards(paymentDetailId, userId);
-        } catch (error) {
-          throw new ValidationError(error.message);
-        }
-        break;
-
-      case 'NEW_CARD':
-        if (!cardDetails) {
-          throw new ValidationError("Card details are required for new card payment");
-        }
-
-        if (!cardDetails.creditCardNumber || !cardDetails.expirationDate ||
-          !cardDetails.securityCode || !cardDetails.zipCode ||
-          !cardDetails.cardOwnerName) {
-          throw new ValidationError("Incomplete card details provided");
-        }
-
-        try {
-          paymentDetail = await createPaymentDetail({
-            ...cardDetails,
-            userId: isGuestBooking ? null : userId
-          });
-        } catch (error) {
-          throw new ValidationError(`Failed to create payment detail: ${error.message}`);
-        }
-        break;
-
-      default:
-        throw new ValidationError("Invalid payment method");
-    }
-    if (!paymentDetail) {
-      throw new ValidationError("Failed to process payment details");
-    }
-
-    await hourlyCharterBook.setPaymentDetail(paymentDetail);
-
-
     if (carId) {
       const existingCar = await getCarById(carId);
       await hourlyCharterBook.setCar(existingCar);
@@ -437,10 +404,40 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       hourlyCharterBook.totalTripFeeInDollars = totalTripFee;
       await hourlyCharterBook.save();
 
-      //notify admin and user
-      bookingNotification("Hourly Charter", hourlyCharterBook);
+      const paymentResult = await processBookingPayment({
+        bookingType: "HOURLY",
+        bookingId: hourlyCharterBook.hourlyCharterBookId,
+        confirmationNumber,
+        amountDollars: totalTripFee,
+        paymentMethod,
+        square,
+        squareCardId,
+        paymentDetailId,
+        userId,
+        isGuestBooking,
+        cardDetails,
+      });
 
-      return  await getHourlyCharterBookById(hourlyCharterBook.hourlyCharterBookId);
+      if (paymentResult.paymentDetail) {
+        await hourlyCharterBook.setPaymentDetail(paymentResult.paymentDetail);
+      }
+      hourlyCharterBook.paymentStatus = paymentResult.paymentStatus;
+      await hourlyCharterBook.save();
+
+      const full = await getHourlyCharterBookById(hourlyCharterBook.hourlyCharterBookId);
+      bookingNotification("Hourly Charter", full);
+      return {
+        ...full.toJSON(),
+        realtime: {
+          provider: "socket.io",
+          event: "payment.transaction.updated",
+          roomToken: signBookingRoomToken({
+            bookingType: "HOURLY",
+            bookingId: full.hourlyCharterBookId,
+            userId: full.userId,
+          }),
+        },
+      };
     } catch(error){
       await hourlyCharterBook.destroy();
       if (error instanceof ValidationError){
@@ -459,6 +456,7 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
     async function updateHourlyCharterBookForUser(hourlyCharterBookId, userId, updatedData, opts = {}) {
       const isAdmin = Boolean(opts.isAdmin);
       const hourlyCharterBook = await getHourlyCharterBookById(hourlyCharterBookId);
+      const previousTotal = Number(hourlyCharterBook.totalTripFeeInDollars) || 0;
 
       if (!isAdmin) {
         if (!hourlyCharterBook.userId || Number(hourlyCharterBook.userId) !== Number(userId)) {
@@ -477,7 +475,7 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
         }
       }
 
-      const { extraOptions, ...data } = updatedData || {};
+      const { extraOptions, square, squareCardId, ...data } = updatedData || {};
       if (Array.isArray(extraOptions)) {
         await HourlyCharterBookExtraOption.destroy({ where: { hourlyCharterBookId } });
         const validExtraOptions = extraOptions.filter(
@@ -512,6 +510,29 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       reloaded.totalTripFeeInDollars = totalTripFee;
       await reloaded.save();
       const finalBook = await getHourlyCharterBookById(hourlyCharterBook.hourlyCharterBookId);
+      const newTotal = Number(finalBook.totalTripFeeInDollars);
+      if (
+        previousTotal > 0 &&
+        newTotal > 0 &&
+        Math.abs(previousTotal - newTotal) > 0.009
+      ) {
+        const paymentUpdate = await reconcilePaymentOnBookingUpdate({
+          bookingType: "HOURLY",
+          bookingId: finalBook.hourlyCharterBookId,
+          confirmationNumber: finalBook.confirmationNumber,
+          newAmountDollars: newTotal,
+          paymentMethod: finalBook.paymentMethod,
+          paymentDetailId: finalBook.paymentDetailId,
+          userId: finalBook.userId,
+          square,
+          squareCardId,
+        });
+        if (paymentUpdate?.paymentStatus) {
+          finalBook.paymentStatus = paymentUpdate.paymentStatus;
+          await finalBook.save();
+        }
+      }
+
       await bookingUpdateNotification("Hourly Charter", finalBook);
       return finalBook;
     }
@@ -607,11 +628,7 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
             {
               model: PaymentDetail,
               attributes: [
-                "creditCardNumber",
-                "expirationDate",
-                "securityCode",
-                "zipCode",
-                "cardOwnerName",
+                ...PAYMENT_DETAIL_SAFE_ATTRIBUTES,
               ],
             },
             {
@@ -634,6 +651,7 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
             {
               model: ExtraOption,
               attributes: ["extraOptionId", "name", "description", "pricePerItem"],
+              through: { attributes: ["quantity"] },
             },
           ],
         }
