@@ -306,6 +306,33 @@ async function createAdminUser(data) {
   return userResponse(admin);
 }
 
+async function createDriverUser(data) {
+  const existing = await User.findOne({
+    where: {
+      [Op.or]: [{ email: data.email }, { phoneNumber: data.phoneNumber }],
+    },
+  });
+
+  if (existing) {
+    if (existing.email === data.email)
+      throw new ConflictError("Email is already in use.");
+    else throw new ConflictError("Phone number is already in use.");
+  }
+
+  data.role = "driver";
+  const driver = await User.create(data);
+  return userResponse(driver);
+}
+
+async function getDriverUsers() {
+  const drivers = await User.findAll({
+    where: { role: "driver" },
+    attributes: ["userId", "fullName", "email", "phoneNumber", "role", "lastLogin"],
+    order: [["createdAt", "DESC"]],
+  });
+  return drivers.map(userResponse);
+}
+
 // TODO: if user existing and deleted softly
 async function updateUser(userId, updatedUserData) {
   // Check if the provided email or phone number already exists and does not belong to the current user
@@ -401,6 +428,8 @@ function userResponse(user) {
 module.exports = {
   createUser,
   createAdminUser,
+  createDriverUser,
+  getDriverUsers,
   updateUser,
   getAllUsers,
   findUserById,

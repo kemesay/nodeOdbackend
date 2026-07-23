@@ -4,7 +4,7 @@ const { config } = require("dotenv");
 const path = require("path");  // Import 'path' for serving static files
 config();
 
-const logging = require("./config/logging.js");
+const logger = require("./config/logging.js"); // sets up the shared logger + async-error handling as a side effect
 const routes = require("./startUp/routes.js");
 const { connectToDatabase } = require("./config/database.js");
 const { initSocket } = require("./realtime/socket.js");
@@ -23,20 +23,23 @@ app.set("trust proxy", 1);
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Logging and routing
-logging();
 routes(app);
-
-// Connect to database
-connectToDatabase();
 
 const port = process.env.PORT || 5100;
 
 const http = require("http");
 const server = http.createServer(app);
+logger.registerShutdownServer(server);
 initSocket(server);
 
-server.listen(port, () => {
-  console.log(`Listening on port ${port}...`);
+// Wait for the DB (and its schema sync) before accepting traffic — starting
+// the listener first lets early requests hit a half-initialized connection
+// pool on every restart, which is slow at best and drops the connection at
+// worst.
+connectToDatabase().then(() => {
+  server.listen(port, () => {
+    console.log(`Listening on port ${port}...`);
+  });
 });
 
 module.exports = server;

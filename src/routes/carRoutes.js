@@ -32,7 +32,7 @@ const storage = multer.diskStorage({
     cb(null, filePath);
   },
 });
-const upload = multer({ storage: storage });
+const upload = multer({ storage: storage, limits: { fileSize: 5 * 1024 * 1024 } });
 
 router.post("/", [auth, admin, validate(validateCar)], createCarController);
 router.put("/:carId", [auth, admin], updateCarController);

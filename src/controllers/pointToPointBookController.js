@@ -141,7 +141,7 @@ const {
 const { successResponse } = require("../utils/responseUtil.js");
 const authenticateToken = require("../utils/getUserFromToken.js");
 
-async function createPointToPointBookController(req, res, _next) {
+async function createPointToPointBookController(req, res, next) {
   const tokenHeader = req.header("Authorization");
   const { paymentMethod, isGuestBooking } = req.body;
   // Check if payment method requires authentication
@@ -171,16 +171,12 @@ async function createPointToPointBookController(req, res, _next) {
     }
   }
 
- try {
-
-  const pointToPointBook = await createPointToPointBook(req.body);
-  return res.status(201).json(pointToPointBook);
-
- }catch (error) {
-  return res.status(400).json({ 
-    error: error.message 
-  })
-}
+  try {
+    const pointToPointBook = await createPointToPointBook(req.body);
+    return res.status(201).json(pointToPointBook);
+  } catch (error) {
+    return next(error);
+  }
 }
 
 async function updatePointToPointBookController(req, res, _next) {
@@ -203,7 +199,7 @@ async function getPointToPointBooksController(req, res, _next) {
     req.query;
 
   // Default sortDirection to DESC if not provided or invalid
-  sortDirection = sortDirection.toLowerCase() === "asc" ? "ASC" : "DESC";
+  sortDirection = (sortDirection || "").toLowerCase() === "asc" ? "ASC" : "DESC";
 
   const airportBooks = await getPointToPointBooks({
     page,
@@ -246,7 +242,7 @@ async function updateBookingStatusController(req, res, _next) {
   return res.json(updatedPointToPointBook);
 }
 
-async function applyDiscountToPointToPointBookController(req, res, _next) {
+async function applyDiscountToPointToPointBookController(req, res, next) {
   const pointToPointBookId = req.params.pointToPointBookId;
   const { discountAmount } = req.body;
 
@@ -254,7 +250,7 @@ async function applyDiscountToPointToPointBookController(req, res, _next) {
     const updatedPointToPointBook = await applyDiscountToPointToPointBook(pointToPointBookId, discountAmount);
     return res.status(200).json(updatedPointToPointBook);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
   }
 }
 

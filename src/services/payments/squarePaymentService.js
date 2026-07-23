@@ -50,16 +50,25 @@ function sanitizePaymentResponse(payment) {
   return {
     id: payment.id,
     status: payment.status,
+    customerId: payment.customerId || payment.customer_id,
     amountMoney: payment.amountMoney,
     totalMoney: payment.totalMoney,
     approvedMoney: payment.approvedMoney,
     receiptUrl: payment.receiptUrl,
     cardDetails: payment.cardDetails
       ? {
-          cardBrand: payment.cardDetails.card?.cardBrand,
-          last4: payment.cardDetails.card?.last4,
-          expMonth: payment.cardDetails.card?.expMonth,
-          expYear: payment.cardDetails.card?.expYear,
+          status: payment.cardDetails.status,
+          card: payment.cardDetails.card
+            ? {
+                id: payment.cardDetails.card.id,
+                cardBrand: payment.cardDetails.card.cardBrand,
+                last4: payment.cardDetails.card.last4,
+                expMonth: payment.cardDetails.card.expMonth,
+                expYear: payment.cardDetails.card.expYear,
+                fingerprint: payment.cardDetails.card.fingerprint,
+                cardholderName: payment.cardDetails.card.cardholderName,
+              }
+            : undefined,
         }
       : undefined,
   };
@@ -112,6 +121,14 @@ async function createPayment({
     status: mapSquarePaymentStatus(payment),
     amountCents,
   };
+}
+
+async function getPayment(squarePaymentId) {
+  const response = await squareFetch(
+    `/v2/payments/${encodeURIComponent(squarePaymentId)}`,
+    "GET"
+  );
+  return response.payment;
 }
 
 async function capturePayment(squarePaymentId, amountDollars) {
@@ -290,6 +307,7 @@ async function createCardOnFile({
 
 module.exports = {
   createPayment,
+  getPayment,
   capturePayment,
   cancelPayment,
   refundPayment,

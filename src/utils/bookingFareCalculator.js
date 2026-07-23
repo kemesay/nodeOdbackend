@@ -232,6 +232,38 @@ function calculateAirportFare(booking) {
   };
 }
 
+/**
+ * Extra-time charge for LIVE billing mode — time beyond the booked/base hours.
+ * Plain linear rate: pricePerHour × extraHours. No overtime premium/multiplier —
+ * the customer pays the same per-hour rate whether under, at, or over their
+ * booked hours (the booked-hours minimum charge is enforced by the caller).
+ */
+function calculateExtraTimeFare(pricePerHour, extraHours) {
+  const hours = Math.max(asMoney(extraHours), 0);
+  if (hours <= 0) return 0;
+  return roundMoney(asMoney(pricePerHour) * hours);
+}
+
+/**
+ * Pre-authorization amount for LIVE billing mode.
+ * Authorizes (selectedHours + bufferHours) so the card hold covers overtime.
+ */
+function calculateLiveModePreAuthAmount({
+  car,
+  selectedHours,
+  bufferHours = 2,
+  gratuityPercentage = 0,
+  extraOptionsPerLeg = 0,
+}) {
+  assertCarForFare(car);
+  const totalHours = asMoney(selectedHours) + asMoney(bufferHours);
+  const legCar = roundMoney(asMoney(car.pricePerHour) * totalHours);
+  const extras = roundMoney(asMoney(extraOptionsPerLeg));
+  const subtotal = roundMoney(legCar + extras);
+  const gratuity = gratuityOnCarFare(legCar, gratuityPercentage);
+  return roundMoney(subtotal + gratuity);
+}
+
 function calculateBookingFare(booking, bookingKind) {
   const kind =
     bookingKind ||
@@ -317,4 +349,6 @@ module.exports = {
   calculateAirportFare,
   calculateBookingFare,
   quoteFare,
+  calculateExtraTimeFare,
+  calculateLiveModePreAuthAmount,
 };

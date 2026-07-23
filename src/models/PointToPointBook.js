@@ -364,6 +364,7 @@ const { Gratuity } = require("./Gratuity.js");
 const {
   AdditionalStopOnTheWay,
 } = require("./booking/AdditionalStopOnTheWay.js");
+const { SidePickDetour } = require("./booking/SidePickDetour.js");
 
 const { PaymentDetail } = require("./PaymentDetail.js");
 
@@ -389,7 +390,10 @@ const PointToPointBook = sequelize.define(
     confirmationNumber: {
       type: DataTypes.STRING,
       allowNull: false,
-      unique: true,
+      // Named to match the existing DB index so alter-sync doesn't generate
+      // a fresh duplicate index on every restart (see PaymentTransaction.js
+      // idempotencyKey for what that leads to).
+      unique: "confirmationNumber",
     },
     tripType: {
       type: DataTypes.ENUM("One-Way", "Round-Trip"),
@@ -593,6 +597,15 @@ ExtraOption.belongsToMany(PointToPointBook, {
   otherKey: "pointToPointBookId",
   uniqueKey: "book_extra_options_unique",
 });
+
+// Side Pick / Detour association
+PointToPointBook.hasMany(SidePickDetour, {
+  foreignKey: "pointToPointBookId",
+  as: "SidePickDetours",
+});
+SidePickDetour.belongsTo(PointToPointBook, {
+  foreignKey: "pointToPointBookId",
+});
 const cardDetailsSchema = Joi.object({
   creditCardNumber: Joi.string()
     .creditCard()
@@ -710,7 +723,7 @@ const validatePointToPointBook = Joi.object({
   }),
   squareCardId: Joi.when("paymentMethod", {
     is: "SQUARE_SAVED_CARD",
-    then: Joi.string().required(),
+    then: Joi.string().optional(),
     otherwise: Joi.forbidden(),
   }),
   passengerEmail: Joi.string().email().max(255).required(),
@@ -733,6 +746,14 @@ const validatePointToPointBook = Joi.object({
     }),
     otherwise: Joi.forbidden(),
   }),
+  sidePicks: Joi.array().items(
+    Joi.object({
+      address: Joi.string().required(),
+      latitude: Joi.number().required(),
+      longitude: Joi.number().required(),
+      sortOrder: Joi.number().integer().default(0),
+    })
+  ).optional(),
 })
   .custom((value, helpers) => {
     const { isLegacyPaymentProvider } = require("../config/paymentConfig.js");
@@ -776,6 +797,14 @@ const validatePointToPointBookUpdate = Joi.object({
   specialInstructions: Joi.string().allow(""),
   additionalStopId: Joi.number().integer().allow(null),
   additionalStopOnTheWayDescription: Joi.string().allow(""),
+  sidePicks: Joi.array().items(
+    Joi.object({
+      address: Joi.string().required(),
+      latitude: Joi.number().required(),
+      longitude: Joi.number().required(),
+      sortOrder: Joi.number().integer().default(0),
+    })
+  ).optional(),
   carId: Joi.number().integer().allow(null),
   gratuityId: Joi.number().integer().allow(null),
   extraOptions: Joi.array().items(extraOptionSchema).min(0),

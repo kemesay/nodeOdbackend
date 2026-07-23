@@ -25,7 +25,14 @@ const PaymentTransaction = sequelize.define(
     idempotencyKey: {
       type: DataTypes.STRING(64),
       allowNull: false,
-      unique: true,
+      // Named to match the unique index that already exists in the DB —
+      // `unique: true` (no name) makes Sequelize's alter-sync generate a
+      // fresh auto-named index (idempotencyKey, idempotencyKey_2, ...) on
+      // every restart because it can't recognize its own prior index by
+      // name. That ran the payment_transactions table up to MySQL's 64-key
+      // limit. Naming it explicitly lets sync recognize the existing index
+      // and skip re-creating it.
+      unique: "uq_payment_transactions_idempotency",
     },
     amountCents: {
       type: DataTypes.INTEGER,

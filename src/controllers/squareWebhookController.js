@@ -1,7 +1,7 @@
 const squareWebhookService = require("../services/payments/squareWebhookService.js");
 const { getSquareCredentials } = require("../config/square.js");
 
-async function squareWebhook(req, res) {
+async function squareWebhook(req, res, next) {
   const signature = req.get("x-square-hmacsha256-signature");
   const rawBody = req.body;
 
@@ -29,7 +29,7 @@ async function squareWebhook(req, res) {
     const result = await squareWebhookService.handleWebhookEvent(event);
     return res.status(200).json(result);
   } catch (err) {
-    return res.status(500).json({ message: err.message });
+    return next(err);
   }
 }
 

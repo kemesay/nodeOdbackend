@@ -390,6 +390,7 @@ const {
 const {
   getAdditionalStopOnTheWayById,
 } = require("../booking/additionalStopOnTheWayService");
+const { SidePickDetour } = require("../../models/booking/SidePickDetour.js");
 
 const { calculateAirportBookingTotalTripPrice } = require("../utilTripService");
 
@@ -407,6 +408,7 @@ async function createAirportBook(airportBookData) {
     pickupPreferenceId,
     additionalStopId,
     extraOptions,
+    sidePicks,
     paymentDetailId,
     paymentMethod,
     isGuestBooking,
@@ -511,6 +513,15 @@ async function createAirportBook(airportBookData) {
       }
     }
 
+    if (sidePicks && sidePicks.length > 0) {
+      const picks = sidePicks.map((sp, idx) => ({
+        ...sp,
+        sortOrder: sp.sortOrder != null ? sp.sortOrder : idx,
+        airportBookId: airportBook.airportBookId,
+      }));
+      await SidePickDetour.bulkCreate(picks);
+    }
+
     airportBook = await getAirportBookById(airportBook.airportBookId);
 
     const totalTripFee = await calculateAirportBookingTotalTripPrice(airportBook);
@@ -589,7 +600,7 @@ async function updateAirportBookForUser(airportBookId, userId, updatedData, opts
   }
 
   // Handle extra options update (replace)
-  const { extraOptions, square, squareCardId, ...data } = updatedData || {};
+  const { extraOptions, sidePicks: sidePicksUpdate, square, squareCardId, ...data } = updatedData || {};
   if (Array.isArray(extraOptions)) {
     await AirportBookExtraOption.destroy({ where: { airportBookId } });
     const validExtraOptions = extraOptions.filter(
@@ -602,6 +613,18 @@ async function updateAirportBookForUser(airportBookId, userId, updatedData, opts
         quantity,
       }));
       await AirportBookExtraOption.bulkCreate(associations);
+    }
+  }
+
+  if (Array.isArray(sidePicksUpdate)) {
+    await SidePickDetour.destroy({ where: { airportBookId } });
+    if (sidePicksUpdate.length > 0) {
+      const picks = sidePicksUpdate.map((sp, idx) => ({
+        ...sp,
+        sortOrder: sp.sortOrder != null ? sp.sortOrder : idx,
+        airportBookId: airportBook.airportBookId,
+      }));
+      await SidePickDetour.bulkCreate(picks);
     }
   }
 
@@ -807,6 +830,9 @@ async function getAirportBookById(airportBookId) {
 
       {
         model: Car,
+        // Car is paranoid (soft-delete); without this, a booking made with
+        // a since-retired car comes back with Car: null.
+        paranoid: false,
         attributes: [
           "carId",
           "carName",
@@ -832,6 +858,11 @@ async function getAirportBookById(airportBookId) {
         model: ExtraOption,
         attributes: ["extraOptionId", "name", "description", "pricePerItem"],
         through: { attributes: ["quantity"] },
+      },
+      {
+        model: SidePickDetour,
+        as: "SidePickDetours",
+        attributes: ["sidePickId", "address", "latitude", "longitude", "sortOrder"],
       },
     ],
   });

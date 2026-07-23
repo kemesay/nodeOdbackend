@@ -649,6 +649,13 @@ ExtraOption.belongsToMany(AirportBook, {
   uniqueKey: "airport_book_extra_options_unique",
 });
 
+const { SidePickDetour } = require("../booking/SidePickDetour.js");
+AirportBook.hasMany(SidePickDetour, {
+  foreignKey: "airportBookId",
+  as: "SidePickDetours",
+});
+SidePickDetour.belongsTo(AirportBook, { foreignKey: "airportBookId" });
+
 const cardDetailsSchema = Joi.object({
   creditCardNumber: Joi.string()
     .creditCard()
@@ -756,7 +763,7 @@ const validateAirportBook = Joi.object({
   }),
   squareCardId: Joi.when("paymentMethod", {
     is: "SQUARE_SAVED_CARD",
-    then: Joi.string().required(),
+    then: Joi.string().optional(),
     otherwise: Joi.forbidden(),
   }),
   airline: Joi.string().allow(""),
@@ -775,6 +782,14 @@ const validateAirportBook = Joi.object({
   pickupPreferenceId: Joi.number().integer().allow(null),
   additionalStopId: Joi.number().integer().allow(null),
   additionalStopOnTheWayDescription: Joi.string().allow(""),
+  sidePicks: Joi.array().items(
+    Joi.object({
+      address: Joi.string().required(),
+      latitude: Joi.number().required(),
+      longitude: Joi.number().required(),
+      sortOrder: Joi.number().integer().default(0),
+    })
+  ).optional(),
   paymentDetailId: Joi.when("paymentMethod", {
     is: Joi.valid("EXISTING_CARD", "SQUARE_SAVED_CARD"),
     then: Joi.number().when("paymentMethod", {

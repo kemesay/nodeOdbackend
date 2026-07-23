@@ -319,6 +319,12 @@ const PAYMENT_DETAIL_SAFE_ATTRIBUTES = [
 const {
   calculateHourlyCharterTotalTripPrice,
 } = require("../utilTripService.js");
+const {
+  calculateExtraTimeFare,
+  calculateLiveModePreAuthAmount,
+  roundMoney,
+  asMoney,
+} = require("../../utils/bookingFareCalculator.js");
 
 const { bookingNotification, bookingUpdateNotification } = require("../../utils/emailSender");
 const generateConfirmationNumber = require("../bookingUtils.js");
@@ -404,11 +410,26 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       hourlyCharterBook.totalTripFeeInDollars = totalTripFee;
       await hourlyCharterBook.save();
 
+      // LIVE mode: pre-authorize (selectedHours + bufferHours) so the hold
+      // covers potential overtime — actual capture happens at trip end.
+      const billingMode = hourlyCharterBook.billingMode || "PRE_BOOKED";
+      let chargeAmount = totalTripFee;
+      if (billingMode === "LIVE" && hourlyCharterBook.Car) {
+        const bufferHours = hourlyCharterBook.preAuthBufferHours || 2;
+        const gratuityPct = asMoney(hourlyCharterBook.Gratuity?.percentage);
+        chargeAmount = calculateLiveModePreAuthAmount({
+          car: hourlyCharterBook.Car,
+          selectedHours: hourlyCharterBook.selectedHours,
+          bufferHours,
+          gratuityPercentage: gratuityPct,
+        });
+      }
+
       const paymentResult = await processBookingPayment({
         bookingType: "HOURLY",
         bookingId: hourlyCharterBook.hourlyCharterBookId,
         confirmationNumber,
-        amountDollars: totalTripFee,
+        amountDollars: chargeAmount,
         paymentMethod,
         square,
         squareCardId,
@@ -637,6 +658,9 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
             },
             {
               model: Car,
+              // Car is paranoid (soft-delete); without this, a booking made
+              // with a since-retired car comes back with Car: null.
+              paranoid: false,
               attributes: [
                 "carId",
                 "carName",
@@ -664,6 +688,322 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       return hourlyCharterBook;
     }
 
+    /**
+     * Start the trip clock.
+     * LIVE mode: starts immediately.
+     * PRE_BOOKED mode: only if convertToLive=true (Feature 2 — convert fixed to live at start).
+     * Records `servingDriverId` as whoever (driver or admin) actually starts the
+     * trip, so a driver's personal trip history can be scoped to trips they served.
+     */
+    async function startHourlyTrip(hourlyCharterBookId, { convertToLive = false } = {}, servingUserId = null) {
+      const booking = await getHourlyCharterBookById(hourlyCharterBookId);
+
+      if (booking.billingMode === "PRE_BOOKED" && !convertToLive) {
+        throw new ValidationError(
+          "This is a fixed-rate booking. Pass convertToLive:true to switch it to a live meter before starting."
+        );
+      }
+      if (booking.actualStartTime) {
+        throw new ValidationError("Trip has already been started.");
+      }
+      const allowedStatuses = new Set(["ACCEPTED", "AWAITING_PICKUP", "PICKUP_COMPLETED"]);
+      if (!allowedStatuses.has(booking.bookingStatus)) {
+        throw new ValidationError(`Cannot start trip from status: ${booking.bookingStatus}`);
+      }
+
+      if (convertToLive && booking.billingMode === "PRE_BOOKED") {
+        booking.billingMode = "LIVE";
+        booking.convertedToLiveAt = new Date();
+      }
+
+      booking.actualStartTime = new Date();
+      booking.bookingStatus = "EN_ROUTE";
+      if (servingUserId != null) {
+        booking.servingDriverId = servingUserId;
+      }
+      await booking.save();
+      return booking;
+    }
+
+    /**
+     * Feature 1 — Extend a PRE_BOOKED trip with a live meter after booked hours expire.
+     * Preserves the original fixed fare and starts counting extension time at live rates.
+     */
+    async function extendWithLiveMeter(hourlyCharterBookId) {
+      const booking = await getHourlyCharterBookById(hourlyCharterBookId);
+
+      if (booking.billingMode !== "PRE_BOOKED") {
+        throw new ValidationError("Only PRE_BOOKED bookings can be extended with a live meter.");
+      }
+      if (booking.liveExtensionStartedAt) {
+        throw new ValidationError("Live extension has already been activated for this booking.");
+      }
+      const allowedStatuses = new Set(["ACCEPTED", "EN_ROUTE", "AWAITING_PICKUP", "PICKUP_COMPLETED"]);
+      if (!allowedStatuses.has(booking.bookingStatus)) {
+        throw new ValidationError(`Cannot extend from status: ${booking.bookingStatus}`);
+      }
+
+      booking.liveExtensionBaseFare  = asMoney(booking.totalTripFeeInDollars);
+      booking.liveExtensionStartedAt = new Date();
+      booking.billingMode            = "LIVE";   // switch so end-trip controls work
+      booking.bookingStatus          = "EN_ROUTE";
+      await booking.save();
+      return booking;
+    }
+
+    /**
+     * End the trip, compute final fare, and reconcile payment.
+     * Handles three cases:
+     *   A) Pure LIVE booking (standard)
+     *   B) PRE_BOOKED converted to LIVE at start (Feature 2)
+     *   C) PRE_BOOKED extended with live meter (Feature 1) — liveExtensionStartedAt is set
+     */
+    async function endHourlyTrip(hourlyCharterBookId) {
+      const booking = await getHourlyCharterBookById(hourlyCharterBookId);
+
+      if (booking.billingMode !== "LIVE") {
+        throw new ValidationError("end-trip is only valid for LIVE billing mode bookings.");
+      }
+      if (!booking.actualStartTime) {
+        throw new ValidationError("Trip has not been started yet.");
+      }
+      if (booking.actualEndTime) {
+        throw new ValidationError("Trip has already been ended.");
+      }
+
+      const now = new Date();
+      const pricePerHour = asMoney(booking.Car?.pricePerHour);
+
+      let finalTotal, overtimeHours, overtimeAmount, actualHoursUsed, extensionFare;
+
+      if (booking.liveExtensionStartedAt) {
+        // ── Case C: PRE_BOOKED extended — bill only the extension time,
+        // to the exact minute, at the plain hourly rate. The dollar math uses
+        // the full-precision hour fraction; only the stored/reported hour
+        // values are rounded to 2dp, so a 6h32m trip bills as exactly
+        // 32 minutes of extra time, not a rounded-off approximation.
+        const extMs        = now - new Date(booking.liveExtensionStartedAt);
+        const extMinutes   = Math.round(extMs / 60000);
+        const extHoursRaw  = extMinutes / 60;
+
+        extensionFare   = calculateExtraTimeFare(pricePerHour, extHoursRaw);
+        const baseFare  = asMoney(booking.liveExtensionBaseFare);
+
+        finalTotal      = roundMoney(baseFare + extensionFare);
+        overtimeHours   = roundMoney(extHoursRaw);
+        overtimeAmount  = extensionFare;
+        actualHoursUsed = roundMoney(asMoney(booking.selectedHours) + extHoursRaw);
+
+        booking.liveExtensionFareInDollars = extensionFare;
+      } else {
+        // ── Cases A & B: standard LIVE meter from actualStartTime. Minimum
+        // charge is the booked hours; time beyond that is billed at the same
+        // plain hourly rate (no overtime premium), to the exact minute ──────
+        const elapsedMs       = now - new Date(booking.actualStartTime);
+        const elapsedMinutes  = Math.round(elapsedMs / 60000);
+        const elapsedHoursRaw = elapsedMinutes / 60;
+
+        const bookedHours     = asMoney(booking.selectedHours);
+        const actualHoursUsedRaw = Math.max(elapsedHoursRaw, bookedHours);
+        const overtimeHoursRaw   = Math.max(actualHoursUsedRaw - bookedHours, 0);
+        overtimeAmount        = calculateExtraTimeFare(pricePerHour, overtimeHoursRaw);
+        actualHoursUsed       = roundMoney(actualHoursUsedRaw);
+        overtimeHours         = roundMoney(overtimeHoursRaw);
+
+        const originalFare    = asMoney(booking.totalTripFeeInDollars);
+        finalTotal            = roundMoney(originalFare + overtimeAmount);
+      }
+
+      const previousTotal = asMoney(booking.totalTripFeeInDollars);
+      booking.actualEndTime             = now;
+      booking.actualHoursUsed           = actualHoursUsed;
+      booking.overtimeHours             = overtimeHours;
+      booking.overtimeAmountInDollars   = overtimeAmount;
+      booking.totalTripFeeInDollars     = finalTotal;
+      booking.bookingStatus             = "COMPLETED";
+      await booking.save();
+
+      if (finalTotal !== previousTotal) {
+        try {
+          await reconcilePaymentOnBookingUpdate({
+            bookingType: "HOURLY",
+            bookingId: booking.hourlyCharterBookId,
+            previousTotal,
+            newTotal: finalTotal,
+            paymentDetailId: booking.paymentDetailId,
+            squareCardId: booking.squareCardId,
+          });
+        } catch (_) {}
+      }
+
+      return await getHourlyCharterBookById(hourlyCharterBookId);
+    }
+
+    /**
+     * Returns elapsed time + running fare.
+     * Works for: LIVE, converted-to-LIVE (Feature 2), and PRE_BOOKED+extension (Feature 1).
+     * Also returns static fare summary for plain PRE_BOOKED trips (no live clock).
+     */
+    function getLiveTripStatus(booking) {
+      const pricePerHour = asMoney(booking.Car?.pricePerHour);
+      const bookedHours  = asMoney(booking.selectedHours);
+
+      // ── PRE_BOOKED (no extension, no conversion) — static fare summary ──────
+      if (booking.billingMode === "PRE_BOOKED" && !booking.liveExtensionStartedAt) {
+        return {
+          status: "FIXED_RATE",
+          bookedHours,
+          fixedFare: asMoney(booking.totalTripFeeInDollars),
+          pricePerHour,
+          bookingStatus: booking.bookingStatus,
+          convertedToLiveAt: booking.convertedToLiveAt || null,
+        };
+      }
+
+      if (booking.actualEndTime) {
+        return {
+          status: "COMPLETED",
+          mode: booking.liveExtensionStartedAt ? "EXTENDED" : "LIVE",
+          elapsedMinutes: Math.round(
+            (new Date(booking.actualEndTime) - new Date(booking.actualStartTime)) / 60000
+          ),
+          actualHoursUsed:   Number(booking.actualHoursUsed),
+          overtimeHours:     Number(booking.overtimeHours),
+          overtimeAmount:    Number(booking.overtimeAmountInDollars),
+          extensionFare:     Number(booking.liveExtensionFareInDollars || 0),
+          baseFare:          booking.liveExtensionStartedAt ? Number(booking.liveExtensionBaseFare) : null,
+          finalTotal:        Number(booking.totalTripFeeInDollars),
+        };
+      }
+
+      if (!booking.actualStartTime) {
+        return { status: "NOT_STARTED", elapsedMinutes: 0, runningFare: 0 };
+      }
+
+      // ── Feature 1: PRE_BOOKED extended — clock runs from liveExtensionStartedAt,
+      // but the *displayed* total continues from the booked hours already used ──
+      if (booking.liveExtensionStartedAt) {
+        const extMs        = Date.now() - new Date(booking.liveExtensionStartedAt).getTime();
+        const extMinutes   = Math.floor(extMs / 60000);
+        const extHoursRaw  = extMs / (1000 * 60 * 60);
+        const baseFare     = asMoney(booking.liveExtensionBaseFare);
+        const extFare      = roundMoney(calculateExtraTimeFare(pricePerHour, extHoursRaw));
+
+        return {
+          status: "IN_PROGRESS",
+          mode: "EXTENDED",
+          bookedHours,
+          baseFare,
+          extensionMinutes:   extMinutes,
+          extensionHoursRaw:  roundMoney(extHoursRaw),
+          extensionFare:      extFare,
+          runningFare:        roundMoney(baseFare + extFare),
+          // Continuous "total time" counter for the UI clock: starts at the
+          // booked hours (already used under the fixed rate) and keeps
+          // ticking up through the extension, instead of resetting to zero.
+          totalElapsedMinutes: bookedHours * 60 + extMinutes,
+          pricePerHour,
+          liveExtensionStartedAt: booking.liveExtensionStartedAt,
+        };
+      }
+
+      // ── Standard LIVE / converted-to-LIVE. Minimum charge is the booked
+      // hours; time beyond that is billed at the same plain hourly rate ──────
+      const elapsedMs      = Date.now() - new Date(booking.actualStartTime).getTime();
+      const elapsedMinutes = Math.floor(elapsedMs / 60000);
+      const elapsedHoursRaw = elapsedMs / (1000 * 60 * 60);
+
+      let runningFare  = asMoney(booking.totalTripFeeInDollars);
+      let overtimeHrs  = 0;
+      if (elapsedHoursRaw > bookedHours) {
+        const overtimeHoursRaw = elapsedHoursRaw - bookedHours;
+        overtimeHrs = roundMoney(overtimeHoursRaw);
+        runningFare = roundMoney(runningFare + calculateExtraTimeFare(pricePerHour, overtimeHoursRaw));
+      }
+
+      return {
+        status: "IN_PROGRESS",
+        mode: booking.convertedToLiveAt ? "CONVERTED" : "LIVE",
+        elapsedMinutes,
+        elapsedHoursRaw:      roundMoney(elapsedHoursRaw),
+        bookedHours,
+        isOvertime:           elapsedHoursRaw > bookedHours,
+        overtimeHours:        overtimeHrs,
+        runningFare,
+        pricePerHour,
+        convertedToLiveAt:    booking.convertedToLiveAt || null,
+      };
+    }
+
+    /**
+     * Returns all LIVE-mode bookings that are CONFIRMED or EN_ROUTE.
+     * Used by the driver dashboard to show actionable trips.
+     */
+    async function getActiveLiveTrips() {
+      const bookings = await HourlyCharterBook.findAll({
+        where: {
+          billingMode: "LIVE",
+          bookingStatus: { [Op.in]: ["ACCEPTED", "EN_ROUTE"] },
+        },
+        order: [["pickupDateTime", "ASC"]],
+        attributes: { exclude: ["deletedAt"] },
+        include: [{ model: Car, attributes: ["carId", "carName", "pricePerHour", "carImageUrl"], paranoid: false }],
+      });
+      return bookings;
+    }
+
+    /**
+     * All actionable trips for the driver dashboard:
+     * — LIVE trips (ACCEPTED or EN_ROUTE)
+     * — PRE_BOOKED trips (ACCEPTED or EN_ROUTE) — driver may convert or extend
+     */
+    async function getActiveDriverTrips() {
+      const bookings = await HourlyCharterBook.findAll({
+        where: {
+          bookingStatus: { [Op.in]: ["ACCEPTED", "EN_ROUTE"] },
+        },
+        order: [["pickupDateTime", "ASC"]],
+        attributes: { exclude: ["deletedAt"] },
+        include: [{ model: Car, attributes: ["carId", "carName", "pricePerHour", "carImageUrl"], paranoid: false }],
+      });
+      return bookings;
+    }
+
+    /**
+     * Past trips for the driver history page: completed, cancelled, or
+     * rejected bookings, most recent first. Scoped to trips the requesting
+     * driver actually served (via servingDriverId, set when they start a
+     * trip) — admins see the full platform-wide history instead, since they
+     * oversee every driver (mirrors getActiveDriverTrips, which stays
+     * unscoped for the *active* queue any driver/admin can pick up).
+     */
+    async function getDriverTripHistory({ page = 1, pageSize = 10 }, requestingUser = null) {
+      const where = {
+        bookingStatus: { [Op.in]: ["COMPLETED", "CANCELLED", "REJECTED"] },
+      };
+      if (requestingUser && requestingUser.role !== "admin") {
+        where.servingDriverId = requestingUser.userId;
+      }
+      const options = {
+        where,
+        order: [["pickupDateTime", "DESC"]],
+        limit: +pageSize,
+        offset: (page - 1) * +pageSize,
+        attributes: { exclude: ["deletedAt"] },
+        include: [{ model: Car, attributes: ["carId", "carName", "pricePerHour", "carImageUrl"], paranoid: false }],
+      };
+
+      const { count, rows } = await HourlyCharterBook.findAndCountAll(options);
+
+      return {
+        pageNumber: +page,
+        pageSize: +pageSize,
+        totalElements: count,
+        totalPages: Math.ceil(count / pageSize),
+        data: rows,
+      };
+    }
+
     module.exports = {
       createHourlyCharterBook,
       updateHourlyCharterBook,
@@ -674,4 +1014,11 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       updateBookingStatus,
       updatePaymentStatus,
       applyDiscountToHourlyCharterBook,
+      startHourlyTrip,
+      endHourlyTrip,
+      extendWithLiveMeter,
+      getLiveTripStatus,
+      getActiveLiveTrips,
+      getActiveDriverTrips,
+      getDriverTripHistory,
     };

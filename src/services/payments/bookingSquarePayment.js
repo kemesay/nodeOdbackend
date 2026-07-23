@@ -12,8 +12,15 @@ const {
   getPrimaryCard,
   getFromExistingCards,
   resolveSquareCustomerId,
+  getPaymentDetailById,
 } = require("../paymentDetailService.js");
 const squarePaymentService = require("./squarePaymentService.js");
+const {
+  ensureSquareCustomerForUser,
+  persistSquareCardFromPayment,
+  recoverPaymentDetailFromTransaction,
+  isCanceledSquarePaymentError,
+} = require("./squareCardPersistence.js");
 const { emitPaymentTransactionUpdated } = require("../../realtime/socket.js");
 const { normalizePaymentBookingType } = require("../../utils/paymentBookingType.js");
 const { parsePaymentAmountDollars, roundMoney } = require("../../utils/bookingFareCalculator.js");
@@ -271,6 +278,12 @@ async function processBookingPayment({
       paymentDetail,
       squareCardId: sourceId,
     });
+  } else if (userId) {
+    customerId = await ensureSquareCustomerForUser(userId, {
+      cardOwnerName: cardDetails?.cardOwnerName,
+      zipCode: cardDetails?.zipCode,
+      email: cardDetails?.email,
+    });
   }
 
   return chargeWithSquare({
@@ -282,6 +295,12 @@ async function processBookingPayment({
     verificationToken,
     paymentDetail,
     customerId,
+    userId,
+    cardHints: {
+      cardOwnerName: cardDetails?.cardOwnerName,
+      zipCode: cardDetails?.zipCode,
+      email: cardDetails?.email,
+    },
   });
 }
 
@@ -294,6 +313,8 @@ async function chargeWithSquare({
   verificationToken,
   paymentDetail,
   customerId,
+  userId,
+  cardHints = {},
   forceImmediateCapture = false,
 }) {
   const parsedAmount = parsePaymentAmountDollars(amountDollars);
@@ -320,7 +341,7 @@ async function chargeWithSquare({
       idempotencyKey,
       autocomplete,
       verificationToken,
-      customerId: isSquareCardOnFile(sourceId) ? customerId : undefined,
+      customerId: customerId || undefined,
     });
 
   const transaction = await squarePaymentService.recordPaymentTransaction({
@@ -344,8 +365,22 @@ async function chargeWithSquare({
     throw new ValidationError("Card payment was declined. Please try another card.");
   }
 
+  let resolvedPaymentDetail = paymentDetail;
+  try {
+    resolvedPaymentDetail = await persistSquareCardFromPayment({
+      payment,
+      userId: userId ?? paymentDetail?.userId ?? null,
+      existingPaymentDetail: paymentDetail,
+      cardHints,
+    });
+  } catch (err) {
+    console.warn(
+      `[bookingSquarePayment] Card persistence after payment failed: ${err.message}`
+    );
+  }
+
   return {
-    paymentDetail,
+    paymentDetail: resolvedPaymentDetail,
     paymentStatus,
     transaction,
   };
@@ -459,6 +494,108 @@ async function handleAdminBookingPayment({
   return booking;
 }
 
+function bookingCardHints(booking) {
+  return {
+    cardOwnerName: booking.cardOwnerName || booking.passengerFullName,
+    zipCode: booking.zipCode,
+    email: booking.passengerEmail,
+    passengerFullName: booking.passengerFullName,
+    passengerEmail: booking.passengerEmail,
+  };
+}
+
+async function ensureBookingPaymentDetail(booking, tx) {
+  if (booking.paymentDetailId) {
+    try {
+      if (booking.userId) {
+        return await getFromExistingCards(
+          booking.paymentDetailId,
+          booking.userId
+        );
+      }
+      return await getPaymentDetailById(booking.paymentDetailId);
+    } catch {
+      // stale link — recover below
+    }
+  }
+
+  if (!tx) return null;
+
+  const recovered = await recoverPaymentDetailFromTransaction(tx, {
+    userId: booking.userId,
+    cardHints: bookingCardHints(booking),
+  });
+
+  if (recovered) {
+    await booking.setPaymentDetail(recovered);
+    booking.paymentDetailId = recovered.paymentDetailId;
+  }
+
+  return recovered;
+}
+
+async function chargeSavedCardForBooking({
+  booking,
+  ledgerBookingType,
+  bookingId,
+  amount,
+  tx,
+}) {
+  const paymentDetail = await ensureBookingPaymentDetail(booking, tx);
+
+  const paymentMethod = booking.paymentMethod || "EXISTING_CARD";
+  const allowed = new Set([
+    "SQUARE_SAVED_CARD",
+    "PRIMARY_CARD",
+    "EXISTING_CARD",
+  ]);
+  if (!allowed.has(paymentMethod)) {
+    throw new ValidationError(
+      "No authorized payment to capture. Customer must pay with a saved card or re-book with Square."
+    );
+  }
+
+  const { sourceId, verificationToken, paymentDetail: resolvedDetail } =
+    await resolveSquareSourceId({
+      paymentMethod,
+      square: null,
+      squareCardId: paymentDetail?.squareCardId || null,
+      paymentDetailId: booking.paymentDetailId || paymentDetail?.paymentDetailId,
+      userId: booking.userId,
+    });
+
+  let customerId = null;
+  if (isSquareCardOnFile(sourceId)) {
+    customerId = await resolveSquareCustomerId({
+      userId: booking.userId,
+      paymentDetail: resolvedDetail || paymentDetail,
+      squareCardId: sourceId,
+    });
+  }
+
+  const result = await chargeWithSquare({
+    bookingType: ledgerBookingType,
+    bookingId,
+    confirmationNumber: booking.confirmationNumber,
+    amountDollars: amount,
+    sourceId,
+    verificationToken,
+    paymentDetail: resolvedDetail || paymentDetail,
+    customerId,
+    userId: booking.userId,
+    cardHints: bookingCardHints(booking),
+    forceImmediateCapture: true,
+  });
+
+  if (result.paymentDetail) {
+    await booking.setPaymentDetail(result.paymentDetail);
+  }
+  booking.paymentStatus =
+    result.paymentStatus === "PAID" ? "PAID" : result.paymentStatus;
+  await booking.save();
+  return booking;
+}
+
 /**
  * Admin "take payment" — capture an existing authorization or charge saved card.
  * Called from POST /api/v1/admin/bookings/update-payment-status
@@ -510,71 +647,53 @@ async function handleAdminTakePayment({
   }
 
   if (tx?.squarePaymentId && tx.status === "AUTHORIZED") {
-    const payment = await squarePaymentService.capturePayment(
-      tx.squarePaymentId,
-      amount
-    );
-    await tx.update({
-      status: "COMPLETED",
-      amountCents: dollarsToCents(amount),
-      rawResponse: squarePaymentService.sanitizePaymentResponse(payment),
-    });
-    emitPaymentTransactionUpdated(tx);
-    booking.paymentStatus = "PAID";
-    await booking.save();
-    return booking;
+    try {
+      const payment = await squarePaymentService.capturePayment(
+        tx.squarePaymentId,
+        amount
+      );
+      await tx.update({
+        status: "COMPLETED",
+        amountCents: dollarsToCents(amount),
+        rawResponse: squarePaymentService.sanitizePaymentResponse(payment),
+      });
+      emitPaymentTransactionUpdated(tx);
+      try {
+        await persistSquareCardFromPayment({
+          payment,
+          userId: booking.userId,
+          existingPaymentDetail: booking.paymentDetailId
+            ? await getFromExistingCards(
+                booking.paymentDetailId,
+                booking.userId
+              ).catch(() => null)
+            : null,
+          cardHints: bookingCardHints(booking),
+        });
+      } catch (err) {
+        console.warn(
+          `[handleAdminTakePayment] Card persistence after capture failed: ${err.message}`
+        );
+      }
+      booking.paymentStatus = "PAID";
+      await booking.save();
+      return booking;
+    } catch (err) {
+      if (!isCanceledSquarePaymentError(err)) {
+        throw err;
+      }
+      await tx.update({ status: "CANCELED" });
+      emitPaymentTransactionUpdated(tx);
+    }
   }
 
-  // No active authorization — charge saved card on file (e.g. after booking edit or legacy row).
-  const paymentMethod = booking.paymentMethod || "EXISTING_CARD";
-  const allowed = new Set([
-    "SQUARE_SAVED_CARD",
-    "PRIMARY_CARD",
-    "EXISTING_CARD",
-  ]);
-  if (!allowed.has(paymentMethod)) {
-    throw new ValidationError(
-      "No authorized payment to capture. Customer must pay with a saved card or re-book with Square."
-    );
-  }
-
-  const { sourceId, verificationToken, paymentDetail } =
-    await resolveSquareSourceId({
-      paymentMethod,
-      square: null,
-      squareCardId: null,
-      paymentDetailId: booking.paymentDetailId,
-      userId: booking.userId,
-    });
-
-  let customerId = null;
-  if (isSquareCardOnFile(sourceId)) {
-    customerId = await resolveSquareCustomerId({
-      userId: booking.userId,
-      paymentDetail,
-      squareCardId: sourceId,
-    });
-  }
-
-  const result = await chargeWithSquare({
-    bookingType: ledgerBookingType,
+  return chargeSavedCardForBooking({
+    booking,
+    ledgerBookingType,
     bookingId,
-    confirmationNumber: booking.confirmationNumber,
-    amountDollars: amount,
-    sourceId,
-    verificationToken,
-    paymentDetail,
-    customerId,
-    forceImmediateCapture: true,
+    amount,
+    tx,
   });
-
-  if (result.paymentDetail && !booking.paymentDetailId) {
-    await booking.setPaymentDetail(result.paymentDetail);
-  }
-  booking.paymentStatus =
-    result.paymentStatus === "PAID" ? "PAID" : result.paymentStatus;
-  await booking.save();
-  return booking;
 }
 
 module.exports = {

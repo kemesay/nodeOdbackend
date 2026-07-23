@@ -39,6 +39,8 @@ const router = express.Router();
 const {
   createUserController,
   createAdminUserController,
+  createDriverUserController,
+  getDriverUsersController,
   updateUserController,
   getAllUsersController,
   deleteUserController,
@@ -61,6 +63,12 @@ router.post(
   [auth, admin, validate(validateUser)],
   createAdminUserController
 );
+router.post(
+  "/driver",
+  [auth, admin, validate(validateUser)],
+  createDriverUserController
+);
+router.get("/drivers", [auth, admin], getDriverUsersController);
 router.put("/", [auth, validate(validateUserUpdate)], updateUserController);
 router.get("/", [auth, admin], getAllUsersController);
 router.delete("/me", [auth], deleteMyAccountController);

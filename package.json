@@ -9,7 +9,10 @@
   "scripts": {
     "start": "nodemon src/app.js",
     "db:airport-geo-columns": "node scripts/ensure-airport-book-geo-columns.js",
-    "db:square-columns": "node scripts/ensure-square-payment-columns.js"
+    "db:square-columns": "node scripts/ensure-square-payment-columns.js",
+    "db:backfill-square-cards": "node scripts/backfill-square-cards-from-ledger.js",
+    "db:live-billing-columns": "node scripts/ensure-live-billing-columns.js",
+    "db:side-pick-detours-table": "node scripts/ensure-side-pick-detours-table.js"
   },
   "keywords": [],
   "author": "",

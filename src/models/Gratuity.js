@@ -60,7 +60,10 @@ const Gratuity = sequelize.define(
     percentage: {
       type: DataTypes.FLOAT,
       allowNull: false,
-      unique: true,
+      // Named to match the existing DB index so alter-sync doesn't generate
+      // a fresh duplicate index on every restart (see PaymentTransaction.js
+      // idempotencyKey for what that leads to).
+      unique: "percentage",
     },
     description: {
       type: DataTypes.STRING,

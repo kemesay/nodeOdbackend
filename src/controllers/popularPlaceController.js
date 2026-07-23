@@ -50,10 +50,10 @@ async function deletePopularPlaceController(req, res, _next) {
 }
 
 async function uploadPopularPlaceImageController(req, res, _next) {
-  const filePath = path.basename(req.file.path);
-
-  const { popularPlaceId } = req.params;
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+  const filePath = path.basename(req.file.path);
+  const { popularPlaceId } = req.params;
   const popularPlace = await uploadPopularPlaceImage(popularPlaceId, filePath);
   return res.json(popularPlace);
 }

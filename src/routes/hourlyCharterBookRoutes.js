@@ -88,6 +88,13 @@ const {
   updatePaymentStatusController,
   updateBookingStatusController,
   applyDiscountToHourlyCharterBookController,
+  startTripController,
+  endTripController,
+  extendLiveTripController,
+  getLiveStatusController,
+  getActiveLiveTripsController,
+  getActiveDriverTripsController,
+  getDriverTripHistoryController,
 } = require("../controllers/hourlyCharterBookController.js");
 
 const {
@@ -101,6 +108,7 @@ const {
 } = require("../utils/validationUtils.js");
 
 const admin = require("../middleware/admin.js");
+const driverOrAdmin = require("../middleware/driver.js");
 const auth = require("../middleware/auth.js");
 const validate = require("../middleware/validateReqBody.js");
 const { getHourlyCharterBookById } = require("../services/hourlyCharter/hourlyCharterBookService.js");
@@ -151,6 +159,24 @@ router.put(
   [auth, admin, validate(validateDiscountApplication)],
   applyDiscountToHourlyCharterBookController
 );
+
+// ─── Driver trip routes ──────────────────────────────────────────────────────
+// All active trips (LIVE + PRE_BOOKED, ACCEPTED + EN_ROUTE) — driver dashboard
+router.get("/driver/active-trips", [auth, driverOrAdmin], getActiveDriverTripsController);
+// Legacy: pure-LIVE active trips only
+router.get("/driver/active-live-trips", [auth, driverOrAdmin], getActiveLiveTripsController);
+// Past trips (COMPLETED/CANCELLED/REJECTED), paginated — driver history page
+router.get("/driver/history", [auth, driverOrAdmin], getDriverTripHistoryController);
+
+// Feature 2 — start trip; pass { convertToLive: true } to convert PRE_BOOKED to LIVE
+router.patch("/:hourlyCharterBookId/start-trip", [auth, driverOrAdmin], startTripController);
+// Feature 1 — extend a PRE_BOOKED trip with live meter after booked hours expire
+router.patch("/:hourlyCharterBookId/extend-live", [auth, driverOrAdmin], extendLiveTripController);
+// End trip and finalize billing
+router.patch("/:hourlyCharterBookId/end-trip", [auth, driverOrAdmin], endTripController);
+// Live status — works for LIVE, converted, extended, and static PRE_BOOKED
+router.get("/:hourlyCharterBookId/live-status", [auth], getLiveStatusController);
+// ─────────────────────────────────────────────────────────────────────────────
 
 router.patch("/:hourlyCharterBookId/associations", [auth, admin], async (req, res) => {
   const hourlyCharterBookId = req.params.hourlyCharterBookId;

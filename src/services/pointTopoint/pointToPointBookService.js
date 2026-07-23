@@ -327,6 +327,7 @@ const {
 const {
   getAdditionalStopOnTheWayById,
 } = require("../booking/additionalStopOnTheWayService.js");
+const { SidePickDetour } = require("../../models/booking/SidePickDetour.js");
 
 const { calculateP2PTotalTripPrice } = require("../utilTripService.js");
 const generateConfirmationNumber = require("../bookingUtils.js");
@@ -341,6 +342,7 @@ async function createPointToPointBook(pointToPointBookData) {
     paymentMethod,
     paymentDetailId,
     extraOptions,
+    sidePicks,
     isGuestBooking,
     userId,
     cardDetails,
@@ -397,7 +399,16 @@ async function createPointToPointBook(pointToPointBookData) {
       await PointToPointBookExtraOption.bulkCreate(associations);
     }
   }
-  
+
+  if (sidePicks && sidePicks.length > 0) {
+    const picks = sidePicks.map((sp, idx) => ({
+      ...sp,
+      sortOrder: sp.sortOrder != null ? sp.sortOrder : idx,
+      pointToPointBookId: pointToPointBook.pointToPointBookId,
+    }));
+    await SidePickDetour.bulkCreate(picks);
+  }
+
   //to get other booking related informations
   pointToPointBook = await getPointToPointBookById(
     pointToPointBook.pointToPointBookId
@@ -479,7 +490,7 @@ async function updatePointToPointBookForUser(pointToPointBookId, userId, updated
     }
   }
 
-  const { extraOptions, square, squareCardId, ...data } = updatedData || {};
+  const { extraOptions, sidePicks: sidePicksUpdate, square, squareCardId, ...data } = updatedData || {};
   if (Array.isArray(extraOptions)) {
     await PointToPointBookExtraOption.destroy({ where: { pointToPointBookId } });
     const validExtraOptions = extraOptions.filter(
@@ -492,6 +503,18 @@ async function updatePointToPointBookForUser(pointToPointBookId, userId, updated
         quantity,
       }));
       await PointToPointBookExtraOption.bulkCreate(associations);
+    }
+  }
+
+  if (Array.isArray(sidePicksUpdate)) {
+    await SidePickDetour.destroy({ where: { pointToPointBookId } });
+    if (sidePicksUpdate.length > 0) {
+      const picks = sidePicksUpdate.map((sp, idx) => ({
+        ...sp,
+        sortOrder: sp.sortOrder != null ? sp.sortOrder : idx,
+        pointToPointBookId: pointToPointBook.pointToPointBookId,
+      }));
+      await SidePickDetour.bulkCreate(picks);
     }
   }
 
@@ -641,6 +664,9 @@ async function getPointToPointBookById(pointToPointBookId) {
       },
       {
         model: Car,
+        // Car is paranoid (soft-delete); without this, a booking made with
+        // a since-retired car comes back with Car: null.
+        paranoid: false,
         attributes: [
           "carId",
           "carName",
@@ -665,6 +691,11 @@ async function getPointToPointBookById(pointToPointBookId) {
         model: ExtraOption,
         attributes: ["extraOptionId", "name", "description", "pricePerItem"],
         through: { attributes: ["quantity"] },
+      },
+      {
+        model: SidePickDetour,
+        as: "SidePickDetours",
+        attributes: ["sidePickId", "address", "latitude", "longitude", "sortOrder"],
       },
     ],
   });

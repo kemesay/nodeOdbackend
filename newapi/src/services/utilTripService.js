@@ -1,0 +1,415 @@
+// const { HourlyCharterBook } = require("../models/HourlyCharterBook.js");
+// const { PointToPointBook } = require("../models/PointToPointBook.js");
+// const { AirportBook } = require("../models/airportBooking/AirportBook.js");
+// const { PaymentDetail } = require("../models/PaymentDetail.js");
+// const { Car } = require("../models/Car.js");
+// const { Op } = require("sequelize");
+// const { Gratuity } = require("../models/Gratuity.js");
+// const { AdditionalStopOnTheWay } = require("../models/booking/AdditionalStopOnTheWay.js");
+// const { AirportPickupPreference } = require("../models/airportBooking/AirportPickupPreference.js");
+// const { ExtraOption } = require("../models/ExtraOption.js");
+
+// // Define a function to search user bookings by user ID
+// async function searchUserBookingsByUserId(userId) {
+//   // Define options for querying
+//   const queryOptions = {
+//     where: {
+//       userId: userId,
+//       deletedAt: { [Op.is]: null }, // Filter out soft-deleted records
+//     },
+//     order: [["updatedAt", "DESC"]],
+//     attributes: { exclude: ["deletedAt"] },
+//     include: [
+//       {
+//         model: Car, // Include the Car model
+//         attributes: ["carImageUrl"],
+//       },
+//     ],
+//   };
+
+//   // Search point-to-point bookings
+//   const pointToPointBookings = await PointToPointBook.findAll(queryOptions);
+
+//   // Search hourly charter bookings
+//   const hourlyCharterBookings = await HourlyCharterBook.findAll(queryOptions);
+
+//   // Search airport bookings
+//   const airportBookings = await AirportBook.findAll(queryOptions);
+
+//   return {
+//     pointToPointBookings,
+//     hourlyCharterBookings,
+//     airportBookings,
+//   };
+// }
+
+// async function getPaymentDetailByUserId(userId) {
+//  const queryOptions = {
+//   where: {
+//     userId: userId,
+//     // deletedAt: { [Op.is]: null },
+//   },
+//   order: [["updatedAt"]],
+//   // attributes: { exclude: ["deletedAt"] },
+//  };
+ 
+//  const paymentDetail = await PaymentDetail.findAll(queryOptions);
+ 
+//  return paymentDetail;
+ 
+ 
+ 
+// }
+
+// async function calculateP2PTotalTripPrice(booking) {
+//   const { pricePerMile, minimumStartFee } = booking.Car;
+//   const percentage = booking.Gratuity.percentage;
+
+//   let carPrice =
+//     Number(pricePerMile * booking.distanceInMiles) + Number(minimumStartFee);
+  
+//   if (booking.tripType === "Round-Trip") carPrice *= 2;
+
+//   let additionalStopPrice = booking.AdditionalStopOnTheWay
+//     ? booking.AdditionalStopOnTheWay.additionalStopPrice
+//     : 0;
+
+//   let extraOptionsPrice = 0;
+//   if (booking.ExtraOptions) {
+//     if (booking.tripType === "Round-Trip") {
+
+//         for (const extraOption of Object.values(booking.ExtraOptions)) {
+//           extraOptionsPrice +=
+//             extraOption.pricePerItem *
+//             extraOption.PointToPointBookExtraOption.quantity;
+//         }
+//         extraOptionsPrice *= 2;
+
+//       } else {
+//         for (const extraOption of Object.values(booking.ExtraOptions)) {
+//           extraOptionsPrice +=
+//             extraOption.pricePerItem *
+//             extraOption.PointToPointBookExtraOption.quantity;
+//         }
+//       }
+
+    
+//   }
+
+//   const tripPrice =
+//     Number(carPrice) + Number(additionalStopPrice) + Number(extraOptionsPrice);
+
+//   const totalPrice = tripPrice + tripPrice * (percentage / 100);
+//   return Number(totalPrice.toFixed(2));
+// }
+
+// async function calculateHourlyCharterTotalTripPrice(booking) {
+//   const { pricePerHour, minimumStartFee } = booking.Car;
+//   const percentage = booking.Gratuity.percentage;
+
+//   let carPrice = pricePerHour * booking.selectedHours;
+
+//   let extraOptionsPrice = 0;
+//   if (booking.ExtraOptions) {
+//     for (const extraOption of Object.values(booking.ExtraOptions)) {
+//       extraOptionsPrice +=
+//         extraOption.pricePerItem *
+//         extraOption.HourlyCharterBookExtraOption.quantity;
+//     }
+//   }
+
+//   const tripPrice = Number(carPrice) + Number(extraOptionsPrice);
+//   const totalPrice = tripPrice + tripPrice * (percentage / 100);
+//   return Number(totalPrice.toFixed(2));
+// }
+
+// async function calculateAirportBookingTotalTripPrice(booking) {
+//   // First, ensure we have all necessary associations loaded
+//   if (!booking.Car || !booking.Gratuity) {
+//     // Reload the booking with all necessary associations
+//     booking = await AirportBook.findByPk(booking.airportBookId, {
+//       include: [
+//         {
+//           model: Car,
+//           attributes: ['pricePerMile', 'minimumStartFee'],
+//         },
+//         {
+//           model: Gratuity,
+//           attributes: ['percentage'],
+//         },
+//         {
+//           model: AdditionalStopOnTheWay,
+//           attributes: ['additionalStopPrice'],
+//         },
+//         {
+//           model: AirportPickupPreference,
+//           attributes: ['preferencePrice'],
+//         },
+//         {
+//           model: ExtraOption,
+//           through: {
+//             attributes: ['quantity'],
+//           },
+//         },
+//       ],
+//     });
+
+//     if (!booking || !booking.Car) {
+//       throw new Error('Unable to calculate price: Missing required car information');
+//     }
+//   }
+
+//   const { pricePerMile, minimumStartFee } = booking.Car;
+//   const percentage = booking.Gratuity ? booking.Gratuity.percentage : 0;
+
+//   let carPrice =
+//     Number(pricePerMile * booking.distanceInMiles) + Number(minimumStartFee);
+
+//   const isRoundTrip =
+//     booking.tripType === "Ride to the airport(round trip)" ||
+//     booking.tripType === "Ride from the airport(round trip)";
+//   if (isRoundTrip) carPrice *= 2;
+
+//   let additionalStopPrice = booking.AdditionalStopOnTheWay
+//     ? booking.AdditionalStopOnTheWay.additionalStopPrice
+//     : 0;
+
+//   let airportPickupPreferencePrice = booking.AirportPickupPreference
+//     ? booking.AirportPickupPreference.preferencePrice
+//     : 0;
+
+//   let extraOptionsPrice = 0;
+//   if (booking.ExtraOptions && booking.ExtraOptions.length > 0) {
+//     if (isRoundTrip) {
+//       booking.ExtraOptions.forEach(extraOption => {
+//         extraOptionsPrice +=
+//           extraOption.pricePerItem * extraOption.AirportBookExtraOption.quantity;
+//       });
+//       extraOptionsPrice *= 2;
+//     } else {
+//       booking.ExtraOptions.forEach(extraOption => {
+//         extraOptionsPrice +=
+//           extraOption.pricePerItem * extraOption.AirportBookExtraOption.quantity;
+//       });
+//     }
+//   }
+
+//   const tripPrice =
+//     Number(carPrice) +
+//     Number(additionalStopPrice) +
+//     Number(airportPickupPreferencePrice) +
+//     Number(extraOptionsPrice);
+
+//   const totalPrice = percentage ? tripPrice + tripPrice * (percentage / 100) : tripPrice;
+//   return Number(totalPrice.toFixed(2));
+// }
+
+// module.exports = {
+//   searchUserBookingsByUserId,
+//   calculateP2PTotalTripPrice,
+//   calculateHourlyCharterTotalTripPrice,
+//   calculateAirportBookingTotalTripPrice,
+//   getPaymentDetailByUserId,
+// };
+
+
+const { HourlyCharterBook } = require("../models/HourlyCharterBook.js");
+const { PointToPointBook } = require("../models/PointToPointBook.js");
+const { AirportBook } = require("../models/airportBooking/AirportBook.js");
+const { PaymentDetail } = require("../models/PaymentDetail.js");
+const { Car } = require("../models/Car.js");
+const { Op } = require("sequelize");
+const { Gratuity } = require("../models/Gratuity.js");
+const { AdditionalStopOnTheWay } = require("../models/booking/AdditionalStopOnTheWay.js");
+const { AirportPickupPreference } = require("../models/airportBooking/AirportPickupPreference.js");
+const { ExtraOption } = require("../models/ExtraOption.js");
+
+// Define a function to search user bookings by user ID
+async function searchUserBookingsByUserId(userId) {
+  // Define options for querying
+  const queryOptions = {
+    where: {
+      userId: userId,
+      deletedAt: { [Op.is]: null }, // Filter out soft-deleted records
+    },
+    order: [["updatedAt", "DESC"]],
+    attributes: { exclude: ["deletedAt"] },
+    include: [
+      {
+        model: Car, // Include the Car model
+        attributes: ["carId", "carName", "carImageUrl"],
+        // Car is paranoid (soft-delete): once a car is retired from the
+        // fleet, a plain include silently drops it and this booking's Car
+        // comes back null even though the booking itself is still valid.
+        // Past/current bookings should keep showing the car they were
+        // actually booked with.
+        paranoid: false,
+      },
+    ],
+  };
+
+  // Search point-to-point bookings
+  const pointToPointBookings = await PointToPointBook.findAll(queryOptions);
+
+  // Search hourly charter bookings
+  const hourlyCharterBookings = await HourlyCharterBook.findAll(queryOptions);
+
+  // Search airport bookings
+  const airportBookings = await AirportBook.findAll(queryOptions);
+
+  return {
+    pointToPointBookings,
+    hourlyCharterBookings,
+    airportBookings,
+  };
+}
+
+async function getPaymentDetailByUserId(userId) {
+ const queryOptions = {
+  where: {
+    userId: userId,
+    // deletedAt: { [Op.is]: null },
+  },
+  order: [["updatedAt", "DESC"]],
+  // attributes: { exclude: ["deletedAt"] },
+ };
+ 
+ const paymentDetail = await PaymentDetail.findAll(queryOptions);
+ 
+ return paymentDetail;
+ 
+ 
+ 
+}
+
+const {
+  calculatePointToPointFare,
+  calculateHourlyCharterFare,
+  calculateAirportFare,
+  carHasFareRates,
+} = require("../utils/bookingFareCalculator.js");
+
+async function ensureAirportBookingForFare(booking) {
+  if (carHasFareRates(booking.Car)) return booking;
+
+  const reloaded = await AirportBook.findByPk(booking.airportBookId, {
+    include: [
+      {
+        model: Car,
+        attributes: ["pricePerMile", "pricePerHour", "minimumStartFee"],
+        // See note in searchUserBookingsByUserId — a retired (soft-deleted)
+        // car must still resolve so fare recalculation doesn't break for
+        // existing bookings.
+        paranoid: false,
+      },
+      { model: Gratuity, attributes: ["percentage"] },
+      {
+        model: AdditionalStopOnTheWay,
+        attributes: ["additionalStopPrice"],
+      },
+      {
+        model: AirportPickupPreference,
+        attributes: ["preferencePrice"],
+      },
+      {
+        model: ExtraOption,
+        through: { attributes: ["quantity"] },
+      },
+    ],
+  });
+
+  if (!reloaded?.Car) {
+    throw new Error("Unable to calculate price: Missing required car information");
+  }
+  return reloaded;
+}
+
+async function ensurePointToPointBookingForFare(booking) {
+  if (carHasFareRates(booking.Car)) return booking;
+  const reloaded = await PointToPointBook.findByPk(booking.pointToPointBookId, {
+    include: [
+      {
+        model: Car,
+        attributes: ["pricePerMile", "pricePerHour", "minimumStartFee"],
+        // See note in searchUserBookingsByUserId — a retired (soft-deleted)
+        // car must still resolve so fare recalculation doesn't break for
+        // existing bookings.
+        paranoid: false,
+      },
+      { model: Gratuity, attributes: ["percentage"] },
+      {
+        model: AdditionalStopOnTheWay,
+        attributes: ["additionalStopPrice"],
+      },
+      {
+        model: ExtraOption,
+        through: { attributes: ["quantity"] },
+      },
+    ],
+  });
+  if (!reloaded?.Car) {
+    throw new Error("Unable to calculate price: Missing required car information");
+  }
+  return reloaded;
+}
+
+async function ensureHourlyCharterBookingForFare(booking) {
+  if (carHasFareRates(booking.Car)) return booking;
+  const reloaded = await HourlyCharterBook.findByPk(booking.hourlyCharterBookId, {
+    include: [
+      {
+        model: Car,
+        attributes: ["pricePerMile", "pricePerHour", "minimumStartFee"],
+        // See note in searchUserBookingsByUserId — a retired (soft-deleted)
+        // car must still resolve so fare recalculation doesn't break for
+        // existing bookings.
+        paranoid: false,
+      },
+      { model: Gratuity, attributes: ["percentage"] },
+      {
+        model: ExtraOption,
+        through: { attributes: ["quantity"] },
+      },
+    ],
+  });
+  if (!reloaded?.Car) {
+    throw new Error("Unable to calculate price: Missing required car information");
+  }
+  return reloaded;
+}
+
+async function calculateP2PTotalTripPrice(booking) {
+  const hydrated = await ensurePointToPointBookingForFare(booking);
+  const { total } = calculatePointToPointFare(hydrated);
+  return total;
+}
+
+async function calculateHourlyCharterTotalTripPrice(booking) {
+  const hydrated = await ensureHourlyCharterBookingForFare(booking);
+  const { total } = calculateHourlyCharterFare(hydrated);
+  return total;
+}
+
+async function calculateAirportBookingTotalTripPrice(booking) {
+  const hydrated = await ensureAirportBookingForFare(booking);
+  const { total } = calculateAirportFare(hydrated);
+  return total;
+}
+
+module.exports = {
+  searchUserBookingsByUserId,
+  calculateP2PTotalTripPrice,
+  calculateHourlyCharterTotalTripPrice,
+  calculateAirportBookingTotalTripPrice,
+  getPaymentDetailByUserId,
+};
+
+
+
+
+
+
+
+
+
+

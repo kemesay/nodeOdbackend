@@ -237,7 +237,13 @@ async function searchUserBookingsByUserId(userId) {
     include: [
       {
         model: Car, // Include the Car model
-        attributes: ["carImageUrl"],
+        attributes: ["carId", "carName", "carImageUrl"],
+        // Car is paranoid (soft-delete): once a car is retired from the
+        // fleet, a plain include silently drops it and this booking's Car
+        // comes back null even though the booking itself is still valid.
+        // Past/current bookings should keep showing the car they were
+        // actually booked with.
+        paranoid: false,
       },
     ],
   };
@@ -291,6 +297,10 @@ async function ensureAirportBookingForFare(booking) {
       {
         model: Car,
         attributes: ["pricePerMile", "pricePerHour", "minimumStartFee"],
+        // See note in searchUserBookingsByUserId — a retired (soft-deleted)
+        // car must still resolve so fare recalculation doesn't break for
+        // existing bookings.
+        paranoid: false,
       },
       { model: Gratuity, attributes: ["percentage"] },
       {
@@ -321,6 +331,10 @@ async function ensurePointToPointBookingForFare(booking) {
       {
         model: Car,
         attributes: ["pricePerMile", "pricePerHour", "minimumStartFee"],
+        // See note in searchUserBookingsByUserId — a retired (soft-deleted)
+        // car must still resolve so fare recalculation doesn't break for
+        // existing bookings.
+        paranoid: false,
       },
       { model: Gratuity, attributes: ["percentage"] },
       {
@@ -346,6 +360,10 @@ async function ensureHourlyCharterBookingForFare(booking) {
       {
         model: Car,
         attributes: ["pricePerMile", "pricePerHour", "minimumStartFee"],
+        // See note in searchUserBookingsByUserId — a retired (soft-deleted)
+        // car must still resolve so fare recalculation doesn't break for
+        // existing bookings.
+        paranoid: false,
       },
       { model: Gratuity, attributes: ["percentage"] },
       {

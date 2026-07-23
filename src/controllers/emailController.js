@@ -123,8 +123,7 @@ const sendEmail = async (req, res) => {
         console.error('Email sending error:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to send email',
-            error: error.message
+            message: 'Failed to send your message. Please try again later or call us directly.',
         });
     }
 };

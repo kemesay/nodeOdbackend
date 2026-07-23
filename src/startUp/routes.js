@@ -21,6 +21,7 @@ const footerContentRoutes = require("../routes/companyInfo/footerContentRoutes.j
 const socialMediaRoutes = require("../routes/companyInfo/socialMediaRoutes.js");
 const gratuityRoutes = require("../routes/gratuityRoutes.js");
 const bookingQuoteRoutes = require("../routes/bookingQuoteRoutes.js");
+const emailRoutes = require("../routes/emailRoutes.js");
 
 module.exports = function setupRoutes(app) {
   app.use(
@@ -49,5 +50,6 @@ module.exports = function setupRoutes(app) {
   app.use("/api/v1/admin/bookings", adminBooking);
   app.use("/api/v1/footer-contents", footerContentRoutes);
   app.use("/api/v1/social-medias", socialMediaRoutes);
+  app.use("/api/v1/email", emailRoutes);
   app.use(errorHandler);
 };

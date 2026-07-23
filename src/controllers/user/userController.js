@@ -140,6 +140,8 @@
 const {
   createUser,
   createAdminUser,
+  createDriverUser,
+  getDriverUsers,
   updateUser,
   getAllUsers,
   deleteUser,
@@ -165,6 +167,16 @@ async function createAdminUserController(req, res, _next) {
   return res.status(201).json(user);
 }
 
+async function createDriverUserController(req, res, _next) {
+  const user = await createDriverUser(req.body);
+  return res.status(201).json(user);
+}
+
+async function getDriverUsersController(req, res, _next) {
+  const drivers = await getDriverUsers();
+  return res.json(drivers);
+}
+
 async function updateUserController(req, res, _next) {
   const userId = req.user.userId;
   const updatedUserData = req.body;
@@ -186,6 +198,8 @@ async function getMyInfoController(req, res, _next) {
     fullName: user.fullName,
     email: user.email,
     phoneNumber: user.phoneNumber,
+    role: user.role,
+    createdAt: user.createdAt,
   };
 
   return res.json(response);
@@ -210,28 +224,28 @@ async function deleteMyAccountController(req, res, _next) {
   return res.json(response);
 }
 
-async function createPaymentDetailController(req, res, _next) {
+async function createPaymentDetailController(req, res, next) {
   try {
     const userId = req.user.userId;
     const paymentDetailData = { ...req.body, userId };
     const newPaymentDetail = await createPaymentDetail(paymentDetailData);
     return res.status(201).json(newPaymentDetail);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
   }
 }
 
-async function getPaymentDetailsController(req, res, _next) {
+async function getPaymentDetailsController(req, res, next) {
   try {
     const userId = req.user.userId;
     const paymentDetails = await getPaymentDetails({ userId, ...req.query });
     return res.status(200).json(paymentDetails);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
   }
 }
 
-async function updatePaymentDetailController(req, res, _next) {
+async function updatePaymentDetailController(req, res, next) {
   try {
     const userId = req.user.userId;
     const cardId = req.params.cardId;
@@ -240,11 +254,11 @@ async function updatePaymentDetailController(req, res, _next) {
     const updatedPaymentDetail = await updatePaymentDetail(cardId, { ...updatedData, userId });
     return res.status(200).json(updatedPaymentDetail);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
   }
 }
 
-async function deletePaymentDetailController(req, res, _next) {
+async function deletePaymentDetailController(req, res, next) {
   try {
     const userId = req.user.userId;
     const cardId = req.params.cardId;
@@ -252,24 +266,26 @@ async function deletePaymentDetailController(req, res, _next) {
     const response = successResponse("Payment detail deleted successfully");
     return res.status(200).json(response);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
   }
 }
 
-async function setPrimaryCardController(req, res, _next) {
+async function setPrimaryCardController(req, res, next) {
   try {
     const userId = req.user.userId;
     const cardId = req.params.cardId;
     const primaryCard = await setPrimaryCard(cardId, userId);
     return res.status(200).json(primaryCard);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
   }
 }
 
 module.exports = {
   createUserController,
   createAdminUserController,
+  createDriverUserController,
+  getDriverUsersController,
   updateUserController,
   getAllUsersController,
   deleteUserController,

@@ -3,7 +3,7 @@ const multer = require("multer");
 const path = require("path");
 
 const router = express.Router();
-const upload = multer({ dest: "./uploads/" });
+const upload = multer({ dest: "./uploads/", limits: { fileSize: 5 * 1024 * 1024 } });
 
 router.post("/upload", upload.single("image"), (req, res) => {
   const imageFile = req.file;

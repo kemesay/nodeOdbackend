@@ -96,7 +96,15 @@ Take-payment request body:
 }
 ```
 
-If no authorization exists (e.g. booking edited), take-payment charges the **saved card on file** with immediate capture.
+If no authorization exists (e.g. booking edited or authorization canceled), take-payment charges the **saved card on file** with immediate capture.
+
+**Card persistence:** After every successful Square payment (authorize or capture), the backend saves `squareCustomerId`, `squareCardId`, `cardBrand`, `last4`, `expMonth`, `expYear` into `payment_details` and links the booking to that row. If capture fails because the authorization was canceled, take-payment automatically charges the saved card instead.
+
+Backfill cards for existing ledger rows:
+
+```bash
+npm run db:backfill-square-cards -- 174 HOURLY
+```
 
 **Env:** `PAYMENT_MODE=authorize_capture` (default) — authorize at booking, capture on take payment.
 

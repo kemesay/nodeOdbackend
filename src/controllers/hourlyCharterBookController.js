@@ -137,13 +137,20 @@ const {
   updateBookingStatus,
   updatePaymentStatus,
   applyDiscountToHourlyCharterBook,
+  startHourlyTrip,
+  endHourlyTrip,
+  extendWithLiveMeter,
+  getLiveTripStatus,
+  getActiveLiveTrips,
+  getActiveDriverTrips,
+  getDriverTripHistory,
 } = require("../services/hourlyCharter/hourlyCharterBookService.js");
 
 const authenticateToken = require("../utils/getUserFromToken.js");
 
 const { successResponse } = require("../utils/responseUtil.js");
 
-async function createHourlyCharterBookController(req, res, _next) {
+async function createHourlyCharterBookController(req, res, next) {
   const tokenHeader = req.header("Authorization");
   const { paymentMethod, isGuestBooking } = req.body;
 
@@ -173,13 +180,11 @@ async function createHourlyCharterBookController(req, res, _next) {
       console.log("Invalid token for NEW_CARD payment, continuing as guest");
     }
   }
-  try{
-  const hourlyCharterBook = await createHourlyCharterBook(req.body);
-  return res.status(201).json(hourlyCharterBook);
-  } catch(error){
-    return res.status(400).json({
-      error: error.message
-    })
+  try {
+    const hourlyCharterBook = await createHourlyCharterBook(req.body);
+    return res.status(201).json(hourlyCharterBook);
+  } catch (error) {
+    return next(error);
   }
 }
 
@@ -203,7 +208,7 @@ async function getAllHourlyCharterBooksController(req, res, _next) {
     req.query;
 
   // Default sortDirection to DESC if not provided or invalid
-  sortDirection = sortDirection.toLowerCase() === "asc" ? "ASC" : "DESC";
+  sortDirection = (sortDirection || "").toLowerCase() === "asc" ? "ASC" : "DESC";
 
   const airportBooks = await getHourlyCharterBooks({
     page,
@@ -246,7 +251,7 @@ async function updateBookingStatusController(req, res, _next) {
   return res.json(updatedHourlyCharterBook);
 }
 
-async function applyDiscountToHourlyCharterBookController(req, res, _next) {
+async function applyDiscountToHourlyCharterBookController(req, res, next) {
   const hourlyCharterBookId = req.params.hourlyCharterBookId;
   const { discountAmount } = req.body;
 
@@ -254,7 +259,79 @@ async function applyDiscountToHourlyCharterBookController(req, res, _next) {
     const updatedHourlyCharterBook = await applyDiscountToHourlyCharterBook(hourlyCharterBookId, discountAmount);
     return res.status(200).json(updatedHourlyCharterBook);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
+  }
+}
+
+// ─── LIVE billing mode controllers ──────────────────────────────────────────
+
+async function startTripController(req, res, next) {
+  const { hourlyCharterBookId } = req.params;
+  const { convertToLive = false } = req.body || {};
+  try {
+    const booking = await startHourlyTrip(
+      hourlyCharterBookId,
+      { convertToLive: Boolean(convertToLive) },
+      req.user.userId
+    );
+    return res.json(booking);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function extendLiveTripController(req, res, next) {
+  const { hourlyCharterBookId } = req.params;
+  try {
+    const booking = await extendWithLiveMeter(hourlyCharterBookId);
+    return res.json(booking);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function endTripController(req, res, next) {
+  const { hourlyCharterBookId } = req.params;
+  try {
+    const booking = await endHourlyTrip(hourlyCharterBookId);
+    return res.json(booking);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getLiveStatusController(req, res, next) {
+  const { hourlyCharterBookId } = req.params;
+  try {
+    const booking = await getHourlyCharterBookById(hourlyCharterBookId);
+    const status = getLiveTripStatus(booking);
+    return res.json(status);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getActiveLiveTripsController(req, res) {
+  const trips = await getActiveLiveTrips();
+  return res.json(trips);
+}
+
+async function getActiveDriverTripsController(req, res, next) {
+  try {
+    const trips = await getActiveDriverTrips();
+    return res.json(trips);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getDriverTripHistoryController(req, res, next) {
+  try {
+    const { page, pageSize } = req.query;
+    const result = await getDriverTripHistory({ page, pageSize }, req.user);
+    return res.json(result);
+  } catch (error) {
+    return next(error);
   }
 }
 
@@ -267,4 +344,11 @@ module.exports = {
   updatePaymentStatusController,
   updateBookingStatusController,
   applyDiscountToHourlyCharterBookController,
+  startTripController,
+  endTripController,
+  extendLiveTripController,
+  getLiveStatusController,
+  getActiveLiveTripsController,
+  getActiveDriverTripsController,
+  getDriverTripHistoryController,
 };

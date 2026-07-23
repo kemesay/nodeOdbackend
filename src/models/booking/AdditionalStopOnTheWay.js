@@ -70,7 +70,6 @@ const AdditionalStopOnTheWay = sequelize.define(
     stopType: {
       type: DataTypes.ENUM("Oneway", "Roundtrip"),
       allowNull: false,
-      unique: true,
     },
 
     additionalStopPrice: {

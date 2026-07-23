@@ -134,7 +134,7 @@ const authenticateToken = require("../../utils/getUserFromToken.js");
 
 const { successResponse } = require("../../utils/responseUtil.js");
 
-async function createAirportBookController(req, res, _next) {
+async function createAirportBookController(req, res, next) {
   const tokenHeader = req.header("Authorization");
   const { paymentMethod, isGuestBooking } = req.body;
 
@@ -169,9 +169,7 @@ async function createAirportBookController(req, res, _next) {
     const airportBook = await createAirportBook(req.body);
     return res.status(201).json(airportBook);
   } catch (error) {
-    return res.status(400).json({ 
-      error: error.message 
-    });
+    return next(error);
   }
 }
 
@@ -205,7 +203,7 @@ async function updateBookingStatusController(req, res, _next) {
   return res.json(updatedAirportBook);
 }
 
-async function applyDiscountToAirportBookController(req, res, _next) {
+async function applyDiscountToAirportBookController(req, res, next) {
   const airportBookId = req.params.airportBookId;
   const { discountAmount } = req.body;
 
@@ -213,7 +211,7 @@ async function applyDiscountToAirportBookController(req, res, _next) {
     const updatedAirportBook = await applyDiscountToAirportBook(airportBookId, discountAmount);
     return res.status(200).json(updatedAirportBook);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
   }
 }
 
@@ -227,7 +225,7 @@ async function getAirportBooksController(req, res, _next) {
     req.query;
 
   // Default sortDirection to DESC if not provided or invalid
-  sortDirection = sortDirection.toLowerCase() === "asc" ? "ASC" : "DESC";
+  sortDirection = (sortDirection || "").toLowerCase() === "asc" ? "ASC" : "DESC";
 
   const airportBooks = await getAirportBooks({
     page,

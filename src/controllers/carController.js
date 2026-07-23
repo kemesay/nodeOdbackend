@@ -47,10 +47,10 @@ async function deleteCarController(req, res, _next) {
 }
 
 async function uploadCarImageController(req, res, _next) {
-  const filePath = path.basename(req.file.path);
-
-  const { carId } = req.params;
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+  const filePath = path.basename(req.file.path);
+  const { carId } = req.params;
   const car = await uploadCarImage(carId, filePath);
   return res.json(car);
 }

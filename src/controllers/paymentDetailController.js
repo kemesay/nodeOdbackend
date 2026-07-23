@@ -256,8 +256,9 @@ async function updatePaymentDetailController(req, res, _next) {
 }
 
 async function getPaymentDetailsController(req, res, _next) {
-  const { page, pageSize, sortDirection } = req.query;
-  sortDirection = sortDirection.toLowerCase() === "asc" ? "ASC" : "DESC";
+  const { page, pageSize } = req.query;
+  const sortDirection =
+    (req.query.sortDirection || "").toLowerCase() === "asc" ? "ASC" : "DESC";
 
   const paymentDetails = await getPaymentDetails(
     page,

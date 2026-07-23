@@ -44,7 +44,7 @@ function buildPaymentValidationExtensions(baseSchema) {
       }),
       squareCardId: Joi.when("paymentMethod", {
         is: "SQUARE_SAVED_CARD",
-        then: Joi.string().required(),
+        then: Joi.string().optional(),
         otherwise: Joi.forbidden(),
       }),
       paymentDetailId: Joi.when("paymentMethod", {

@@ -348,7 +348,10 @@ const HourlyCharterBook = sequelize.define(
     confirmationNumber: {
       type: DataTypes.STRING,
       allowNull: false,
-      unique: true,
+      // Named to match the existing DB index so alter-sync doesn't generate
+      // a fresh duplicate index on every restart (see PaymentTransaction.js
+      // idempotencyKey for what that leads to).
+      unique: "confirmationNumber",
     },
     pickupPhysicalAddress: {
       type: DataTypes.STRING,
@@ -389,6 +392,87 @@ const HourlyCharterBook = sequelize.define(
       type: DataTypes.INTEGER,
       allowNull: false,
     },
+
+    // ─── Live billing mode ────────────────────────────────────────────────────
+    // PRE_BOOKED: fixed charge = pricePerHour × selectedHours (default)
+    // LIVE:       pre-auth includes a buffer; actual charge calculated at trip end
+    billingMode: {
+      type: DataTypes.ENUM("PRE_BOOKED", "LIVE"),
+      allowNull: false,
+      defaultValue: "PRE_BOOKED",
+    },
+    // Extra hours included in the Square pre-authorization for LIVE bookings
+    preAuthBufferHours: {
+      type: DataTypes.INTEGER,
+      defaultValue: 2,
+    },
+    // Set by admin/driver when the trip clock starts (LIVE mode)
+    actualStartTime: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    // Set by admin/driver when the trip ends (LIVE mode)
+    actualEndTime: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    // Computed: decimal hours between actualStartTime and actualEndTime
+    actualHoursUsed: {
+      type: DataTypes.DECIMAL(6, 2),
+      allowNull: true,
+    },
+    // max(0, actualHoursUsed - selectedHours)
+    overtimeHours: {
+      type: DataTypes.DECIMAL(6, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
+    // Legacy field, retained for historical records only — no longer applied.
+    // Extra time beyond the booked hours is now billed at the plain per-hour
+    // rate (no overtime premium); see calculateExtraTimeFare().
+    overtimeRateMultiplier: {
+      type: DataTypes.DECIMAL(4, 2),
+      defaultValue: 1.5,
+    },
+    // Overtime charge = pricePerHour × overtimeHours (no multiplier)
+    overtimeAmountInDollars: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
+
+    // ─── Flexibility features ─────────────────────────────────────────────────
+    // Feature 1 — Extend PRE_BOOKED with live meter after booked hours expire
+    // Timestamp when the live extension was activated
+    liveExtensionStartedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    // Original fixed fare snapshot (preserved so extension fare is additive)
+    liveExtensionBaseFare: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+    },
+    // Computed extension fare set at end-trip
+    liveExtensionFareInDollars: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
+    // Feature 2 — PRE_BOOKED booking converted to LIVE at start by driver/admin
+    convertedToLiveAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    // The driver (or admin) who actually started this trip — used to scope a
+    // driver's personal trip history to only the trips they served, instead
+    // of every driver's history (there's no fixed driver assignment on a
+    // booking; any driver/admin may pick up any accepted booking).
+    servingDriverId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    // ─────────────────────────────────────────────────────────────────────────
 
     occasion: {
       type: DataTypes.STRING,
@@ -513,6 +597,13 @@ HourlyCharterBook.belongsTo(PaymentDetail, {
 // Define association with User model
 HourlyCharterBook.belongsTo(User, { foreignKey: "userId" });
 
+// The driver/admin who started (is serving) this trip
+HourlyCharterBook.belongsTo(User, {
+  foreignKey: "servingDriverId",
+  as: "ServingDriver",
+  constraints: false,
+});
+
 // Define association with Car model
 HourlyCharterBook.belongsTo(Car, { foreignKey: "carId" });
 
@@ -603,6 +694,7 @@ const validateHourlyCharterBook = Joi.object({
   dropoffLongitude: Joi.number().required(),
   dropoffLatitude: Joi.number().required(),
   selectedHours: Joi.number().integer().min(1).max(24).required(),
+  billingMode: Joi.string().valid('PRE_BOOKED', 'LIVE').default('PRE_BOOKED').optional(),
   occasion: Joi.string().min(1).max(100).required(),
   numberOfPassengers: Joi.number().integer().min(1).required(),
   numberOfSuitcases: Joi.number().integer().min(0).default(0),
@@ -637,7 +729,7 @@ const validateHourlyCharterBook = Joi.object({
   }),
   squareCardId: Joi.when("paymentMethod", {
     is: "SQUARE_SAVED_CARD",
-    then: Joi.string().required(),
+    then: Joi.string().optional(),
     otherwise: Joi.forbidden(),
   }),
   passengerEmail: Joi.string().email().max(255).required(),
