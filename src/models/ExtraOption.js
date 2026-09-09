@@ -122,6 +122,7 @@ const validateExtraOption = Joi.object({
   name: Joi.string().required(),
   description: Joi.string().required(),
   pricePerItem: Joi.number().precision(2).positive().required(),
+  currency: Joi.string().length(3).uppercase().optional(),
   hasMaxAllowedLimit: Joi.boolean().required(),
   maxAllowedItems: Joi.number().integer().min(0).when("hasMaxAllowedItems", {
     is: true,

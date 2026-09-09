@@ -1,5 +1,6 @@
 const {
   createOrUpdateGratuity,
+  updateGratuity,
   getAllGratuities,
   getAllActiveGratuities,
   deleteGratuity,
@@ -11,6 +12,11 @@ const { successResponse } = require("../utils/responseUtil.js");
 async function createOrUpdateGratuityController(req, res, _next) {
   const gratuity = await createOrUpdateGratuity(req.body);
   return res.status(201).json(gratuity);
+}
+
+async function updateGratuityController(req, res, _next) {
+  const gratuity = await updateGratuity(req.params.gratuityId, req.body);
+  return res.json(gratuity);
 }
 
 async function toggleGratuityStatusController(req, res, _next) {
@@ -37,6 +43,7 @@ async function deleteGratuityController(req, res, _next) {
 
 module.exports = {
   createOrUpdateGratuityController,
+  updateGratuityController,
   toggleGratuityStatusController,
   getAllGratuitiesController,
   getAllActiveGratuitiesController,

@@ -547,29 +547,31 @@ async function createAirportBook(airportBookData) {
     }
     airportBook.paymentStatus = paymentResult.paymentStatus;
     await airportBook.save();
-
-    const full = await getAirportBookById(airportBook.airportBookId);
-    await bookingNotification("Airport Service", full);
-    return {
-      ...full.toJSON(),
-      realtime: {
-        provider: "socket.io",
-        event: "payment.transaction.updated",
-        roomToken: signBookingRoomToken({
-          bookingType: "AIRPORT",
-          bookingId: full.airportBookId,
-          userId: full.userId,
-        }),
-      },
-    };
-
   } catch (error) {
+    // Payment (or anything else in this block) failed — the booking must
+    // not survive as a payment-less "PENDING_APPROVAL" row the customer can
+    // see. Destroy it rather than leaving it committed.
     await airportBook.destroy();
     if (error instanceof ValidationError) {
       throw error;
     }
     throw new Error(`Payment processing failed: ${error.message}`);
   }
+
+  const full = await getAirportBookById(airportBook.airportBookId);
+  await bookingNotification("Airport Service", full);
+  return {
+    ...full.toJSON(),
+    realtime: {
+      provider: "socket.io",
+      event: "payment.transaction.updated",
+      roomToken: signBookingRoomToken({
+        bookingType: "AIRPORT",
+        bookingId: full.airportBookId,
+        userId: full.userId,
+      }),
+    },
+  };
 }
 
 async function updateAirportBook(airportBookId, updatedData) {

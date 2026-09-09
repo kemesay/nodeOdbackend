@@ -35,7 +35,7 @@ router.put(
   [auth, admin],
   toggleSocialMediaStatusController
 );
-router.delete("/:socialMediaId", deleteSocialMediaController);
+router.delete("/:socialMediaId", [auth, admin], deleteSocialMediaController);
 router.get("/", getAllActiveSocialMediasController);
 router.get("/all", [auth, admin], getAllSocialMediasController);
 

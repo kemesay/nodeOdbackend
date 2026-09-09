@@ -42,6 +42,7 @@ const {
   createDriverUserController,
   getDriverUsersController,
   updateUserController,
+  updateUserWithIDController,
   getAllUsersController,
   deleteUserController,
   deleteMyAccountController,
@@ -70,6 +71,11 @@ router.post(
 );
 router.get("/drivers", [auth, admin], getDriverUsersController);
 router.put("/", [auth, validate(validateUserUpdate)], updateUserController);
+router.put(
+  "/:userId",
+  [auth, admin, validate(validateUserUpdate)],
+  updateUserWithIDController
+);
 router.get("/", [auth, admin], getAllUsersController);
 router.delete("/me", [auth], deleteMyAccountController);
 router.get("/me", [auth], getMyInfoController);

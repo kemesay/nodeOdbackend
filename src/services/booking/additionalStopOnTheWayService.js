@@ -18,8 +18,14 @@ async function updateAdditionalStopOnTheWay(
 }
 
 async function getAllAdditionalStopOnTheWays() {
-  // return await AdditionalStopOnTheWay.findAll();
   return await AdditionalStopOnTheWay.findAll();
+}
+
+async function deleteAdditionalStopOnTheWay(additionalStopId) {
+  const additionalStopOnTheWay = await getAdditionalStopOnTheWayById(
+    additionalStopId
+  );
+  await additionalStopOnTheWay.destroy();
 }
 
 async function getAdditionalStopOnTheWayById(additionalStopId) {
@@ -37,5 +43,6 @@ module.exports = {
   createAdditionalStopOnTheWay,
   updateAdditionalStopOnTheWay,
   getAllAdditionalStopOnTheWays,
+  deleteAdditionalStopOnTheWay,
   getAdditionalStopOnTheWayById,
 };

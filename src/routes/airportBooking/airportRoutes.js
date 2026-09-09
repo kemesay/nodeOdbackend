@@ -6,6 +6,7 @@ const {
   getAllAirportsController,
   getAllActiveAirportsController,
   toggleAirportStatusController,
+  deleteAirportController,
 } = require("../../controllers/airportBooking/airportController.js");
 
 const { validateAirport } = require("../../models/airportBooking/Airport.js");
@@ -27,6 +28,7 @@ router.put(
   [auth, admin],
   toggleAirportStatusController
 );
+router.delete("/:airportId", [auth, admin], deleteAirportController);
 
 router.get("/all", [auth, admin], getAllAirportsController);
 router.get("/", getAllActiveAirportsController);

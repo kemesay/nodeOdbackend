@@ -185,7 +185,7 @@ async function updateUserController(req, res, _next) {
 }
 
 async function updateUserWithIDController(req, res, _next) {
-  const userId = req.user.userId;
+  const userId = req.params.userId;
   const updatedUserData = req.body;
   const updatedUser = await updateUser(userId, updatedUserData);
   return res.json(updatedUser);
@@ -287,6 +287,7 @@ module.exports = {
   createDriverUserController,
   getDriverUsersController,
   updateUserController,
+  updateUserWithIDController,
   getAllUsersController,
   deleteUserController,
   deleteMyAccountController,

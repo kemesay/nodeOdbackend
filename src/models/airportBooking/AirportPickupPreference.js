@@ -95,6 +95,8 @@ const AirportPickupPreference = sequelize.define(
 const validateAirportPickupPreference = Joi.object({
   preferenceName: Joi.string().required(),
   preferencePrice: Joi.number().precision(2).required(),
+  currency: Joi.string().length(3).uppercase().optional(),
+  status: Joi.string().valid("Active", "Disabled").optional(),
 });
 
 module.exports = { AirportPickupPreference, validateAirportPickupPreference };

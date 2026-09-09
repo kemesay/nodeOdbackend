@@ -293,9 +293,9 @@
 
 
 
-const { Op, ValidationError } = require("sequelize");
+const { Op } = require("sequelize");
 const { PointToPointBook } = require("../../models/PointToPointBook.js");
-const { ResourceNotFoundError } = require("../../errors/CustomErrors.js");
+const { ResourceNotFoundError, ValidationError } = require("../../errors/CustomErrors.js");
 const { getCarById } = require("../booking/carService.js");
 const PointToPointBookExtraOption = require("../../models/PointToPointBookExtraOption.js");
 const { ExtraOption } = require("../../models/ExtraOption.js");
@@ -364,80 +364,90 @@ async function createPointToPointBook(pointToPointBookData) {
   });
 
   try {
-  if (carId) {
-    const existingCar = await getCarById(carId);
-    if (existingCar) {
-      await pointToPointBook.setCar(existingCar);
-      await pointToPointBook.reload();
-    } else {
-      throw new Error('Invalid car ID provided');
+    if (carId) {
+      const existingCar = await getCarById(carId);
+      if (existingCar) {
+        await pointToPointBook.setCar(existingCar);
+        await pointToPointBook.reload();
+      } else {
+        throw new Error('Invalid car ID provided');
+      }
     }
-  }
 
-  if (gratuityId) {
-    const gratuity = await getGratuityById(gratuityId);
-    if (gratuity) {
-      await pointToPointBook.setGratuity(gratuity);
-      await pointToPointBook.reload();
+    if (gratuityId) {
+      const gratuity = await getGratuityById(gratuityId);
+      if (gratuity) {
+        await pointToPointBook.setGratuity(gratuity);
+        await pointToPointBook.reload();
+      }
     }
-  }
-  if (additionalStopId) {
-    const additionalStop = await getAdditionalStopOnTheWayById(additionalStopId);
-    if (additionalStop) {
-      await pointToPointBook.setAdditionalStopOnTheWay(additionalStop);
+    if (additionalStopId) {
+      const additionalStop = await getAdditionalStopOnTheWayById(additionalStopId);
+      if (additionalStop) {
+        await pointToPointBook.setAdditionalStopOnTheWay(additionalStop);
+      }
     }
-  }
 
-  if (extraOptions && extraOptions.length > 0) {
-    const validExtraOptions = extraOptions.filter(option => option.extraOptionId && option.quantity);
-    if (validExtraOptions.length > 0) {
-      const associations = validExtraOptions.map(({ extraOptionId, quantity }) => ({
-        extraOptionId,
+    if (extraOptions && extraOptions.length > 0) {
+      const validExtraOptions = extraOptions.filter(option => option.extraOptionId && option.quantity);
+      if (validExtraOptions.length > 0) {
+        const associations = validExtraOptions.map(({ extraOptionId, quantity }) => ({
+          extraOptionId,
+          pointToPointBookId: pointToPointBook.pointToPointBookId,
+          quantity,
+        }));
+        await PointToPointBookExtraOption.bulkCreate(associations);
+      }
+    }
+
+    if (sidePicks && sidePicks.length > 0) {
+      const picks = sidePicks.map((sp, idx) => ({
+        ...sp,
+        sortOrder: sp.sortOrder != null ? sp.sortOrder : idx,
         pointToPointBookId: pointToPointBook.pointToPointBookId,
-        quantity,
       }));
-      await PointToPointBookExtraOption.bulkCreate(associations);
+      await SidePickDetour.bulkCreate(picks);
     }
+
+    //to get other booking related informations
+    pointToPointBook = await getPointToPointBookById(
+      pointToPointBook.pointToPointBookId
+    );
+
+    //calculate total trip fee
+    const totalTripFee = await calculateP2PTotalTripPrice(pointToPointBook);
+    pointToPointBook.totalTripFeeInDollars = totalTripFee;
+    pointToPointBook = await pointToPointBook.save();
+
+    const paymentResult = await processBookingPayment({
+      bookingType: "P2P",
+      bookingId: pointToPointBook.pointToPointBookId,
+      confirmationNumber,
+      amountDollars: totalTripFee,
+      paymentMethod,
+      square,
+      squareCardId,
+      paymentDetailId,
+      userId,
+      isGuestBooking,
+      cardDetails,
+    });
+
+    if (paymentResult.paymentDetail) {
+      await pointToPointBook.setPaymentDetail(paymentResult.paymentDetail);
+    }
+    pointToPointBook.paymentStatus = paymentResult.paymentStatus;
+    await pointToPointBook.save();
+  } catch (error) {
+    // Payment (or anything else in this block) failed — the booking must
+    // not survive as a payment-less "PENDING_APPROVAL" row the customer can
+    // see. Destroy it rather than leaving it committed.
+    await pointToPointBook.destroy();
+    if (error instanceof ValidationError) {
+      throw error;
+    }
+    throw new Error(`payment processing failed: ${error.message}`);
   }
-
-  if (sidePicks && sidePicks.length > 0) {
-    const picks = sidePicks.map((sp, idx) => ({
-      ...sp,
-      sortOrder: sp.sortOrder != null ? sp.sortOrder : idx,
-      pointToPointBookId: pointToPointBook.pointToPointBookId,
-    }));
-    await SidePickDetour.bulkCreate(picks);
-  }
-
-  //to get other booking related informations
-  pointToPointBook = await getPointToPointBookById(
-    pointToPointBook.pointToPointBookId
-  );
-
-  //calculate total trip fee
-  const totalTripFee = await calculateP2PTotalTripPrice(pointToPointBook);
-  pointToPointBook.totalTripFeeInDollars = totalTripFee;
-  pointToPointBook = await pointToPointBook.save();
-
-  const paymentResult = await processBookingPayment({
-    bookingType: "P2P",
-    bookingId: pointToPointBook.pointToPointBookId,
-    confirmationNumber,
-    amountDollars: totalTripFee,
-    paymentMethod,
-    square,
-    squareCardId,
-    paymentDetailId,
-    userId,
-    isGuestBooking,
-    cardDetails,
-  });
-
-  if (paymentResult.paymentDetail) {
-    await pointToPointBook.setPaymentDetail(paymentResult.paymentDetail);
-  }
-  pointToPointBook.paymentStatus = paymentResult.paymentStatus;
-  await pointToPointBook.save();
 
   const full = await getPointToPointBookById(pointToPointBook.pointToPointBookId);
   bookingNotification("Point to point", full);
@@ -454,13 +464,6 @@ async function createPointToPointBook(pointToPointBookData) {
       }),
     },
   };
-}
-catch(error){
-if (error instanceof ValidationError){
-  throw error;
-}
-throw new Error (`payment processing failed: ${error.message}`);
-}
 }
 
 async function updatePointToPointBook(pointToPointBookId, updatedData) {

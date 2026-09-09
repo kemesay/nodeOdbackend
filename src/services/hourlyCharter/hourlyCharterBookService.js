@@ -380,9 +380,7 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
     if (gratuityId) {
       const gratuity = await getGratuityById(gratuityId);
       await hourlyCharterBook.setGratuity(gratuity);
-      // await hourlyCharterBook.save();
     }
-
 
     if (extraOptions && extraOptions.length > 0) {
       const validExtraOptions = extraOptions.filter(option => option.extraOptionId && option.quantity);
@@ -398,76 +396,77 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       }
     }
 
+    hourlyCharterBook = await getHourlyCharterBookById(
+      hourlyCharterBook.hourlyCharterBookId
+    );
 
-      hourlyCharterBook = await getHourlyCharterBookById(
-        hourlyCharterBook.hourlyCharterBookId
-      );
+    //calculate total trip fee
+    const totalTripFee = await calculateHourlyCharterTotalTripPrice(
+      hourlyCharterBook
+    );
+    hourlyCharterBook.totalTripFeeInDollars = totalTripFee;
+    await hourlyCharterBook.save();
 
-      //calculate total trip fee
-      const totalTripFee = await calculateHourlyCharterTotalTripPrice(
-        hourlyCharterBook
-      );
-      hourlyCharterBook.totalTripFeeInDollars = totalTripFee;
-      await hourlyCharterBook.save();
-
-      // LIVE mode: pre-authorize (selectedHours + bufferHours) so the hold
-      // covers potential overtime — actual capture happens at trip end.
-      const billingMode = hourlyCharterBook.billingMode || "PRE_BOOKED";
-      let chargeAmount = totalTripFee;
-      if (billingMode === "LIVE" && hourlyCharterBook.Car) {
-        const bufferHours = hourlyCharterBook.preAuthBufferHours || 2;
-        const gratuityPct = asMoney(hourlyCharterBook.Gratuity?.percentage);
-        chargeAmount = calculateLiveModePreAuthAmount({
-          car: hourlyCharterBook.Car,
-          selectedHours: hourlyCharterBook.selectedHours,
-          bufferHours,
-          gratuityPercentage: gratuityPct,
-        });
-      }
-
-      const paymentResult = await processBookingPayment({
-        bookingType: "HOURLY",
-        bookingId: hourlyCharterBook.hourlyCharterBookId,
-        confirmationNumber,
-        amountDollars: chargeAmount,
-        paymentMethod,
-        square,
-        squareCardId,
-        paymentDetailId,
-        userId,
-        isGuestBooking,
-        cardDetails,
+    // LIVE mode: pre-authorize (selectedHours + bufferHours) so the hold
+    // covers potential overtime — actual capture happens at trip end.
+    const billingMode = hourlyCharterBook.billingMode || "PRE_BOOKED";
+    let chargeAmount = totalTripFee;
+    if (billingMode === "LIVE" && hourlyCharterBook.Car) {
+      const bufferHours = hourlyCharterBook.preAuthBufferHours || 2;
+      const gratuityPct = asMoney(hourlyCharterBook.Gratuity?.percentage);
+      chargeAmount = calculateLiveModePreAuthAmount({
+        car: hourlyCharterBook.Car,
+        selectedHours: hourlyCharterBook.selectedHours,
+        bufferHours,
+        gratuityPercentage: gratuityPct,
       });
-
-      if (paymentResult.paymentDetail) {
-        await hourlyCharterBook.setPaymentDetail(paymentResult.paymentDetail);
-      }
-      hourlyCharterBook.paymentStatus = paymentResult.paymentStatus;
-      await hourlyCharterBook.save();
-
-      const full = await getHourlyCharterBookById(hourlyCharterBook.hourlyCharterBookId);
-      bookingNotification("Hourly Charter", full);
-      return {
-        ...full.toJSON(),
-        realtime: {
-          provider: "socket.io",
-          event: "payment.transaction.updated",
-          roomToken: signBookingRoomToken({
-            bookingType: "HOURLY",
-            bookingId: full.hourlyCharterBookId,
-            userId: full.userId,
-          }),
-        },
-      };
-    } catch(error){
-      await hourlyCharterBook.destroy();
-      if (error instanceof ValidationError){
-        throw error 
-      }
-      throw new Error (`payment processing failed: ${error.message}`);
-
     }
+
+    const paymentResult = await processBookingPayment({
+      bookingType: "HOURLY",
+      bookingId: hourlyCharterBook.hourlyCharterBookId,
+      confirmationNumber,
+      amountDollars: chargeAmount,
+      paymentMethod,
+      square,
+      squareCardId,
+      paymentDetailId,
+      userId,
+      isGuestBooking,
+      cardDetails,
+    });
+
+    if (paymentResult.paymentDetail) {
+      await hourlyCharterBook.setPaymentDetail(paymentResult.paymentDetail);
+    }
+    hourlyCharterBook.paymentStatus = paymentResult.paymentStatus;
+    await hourlyCharterBook.save();
+  } catch (error) {
+    // Payment (or anything else in this block) failed — the booking must
+    // not survive as a payment-less "PENDING_APPROVAL" row the customer can
+    // see. Destroy it rather than leaving it committed.
+    await hourlyCharterBook.destroy();
+    if (error instanceof ValidationError) {
+      throw error;
+    }
+    throw new Error(`payment processing failed: ${error.message}`);
   }
+
+  const full = await getHourlyCharterBookById(hourlyCharterBook.hourlyCharterBookId);
+  bookingNotification("Hourly Charter", full);
+  return {
+    ...full.toJSON(),
+    realtime: {
+      provider: "socket.io",
+      event: "payment.transaction.updated",
+      roomToken: signBookingRoomToken({
+        bookingType: "HOURLY",
+        bookingId: full.hourlyCharterBookId,
+        userId: full.userId,
+      }),
+    },
+  };
+}
 
     async function updateHourlyCharterBook(hourlyCharterBookId, updatedData) {
       const hourlyCharterBook = await getHourlyCharterBookById(hourlyCharterBookId);

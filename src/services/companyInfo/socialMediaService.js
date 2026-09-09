@@ -60,7 +60,7 @@ async function getAllSocialMedias() {
 }
 
 async function deleteSocialMedia(id) {
-  const socialMedia = await getSocialMediaById(d);
+  const socialMedia = await getSocialMediaById(id);
   await socialMedia.destroy();
 }
 

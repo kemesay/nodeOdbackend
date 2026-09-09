@@ -2,7 +2,9 @@ const {
   createAdditionalStopOnTheWay,
   updateAdditionalStopOnTheWay,
   getAllAdditionalStopOnTheWays,
+  deleteAdditionalStopOnTheWay,
 } = require("../../services/booking/additionalStopOnTheWayService.js");
+const { successResponse } = require("../../utils/responseUtil.js");
 
 async function createAdditionalStopOnTheWayController(req, res, _next) {
   const additionalStopOnTheWay = await createAdditionalStopOnTheWay(req.body);
@@ -25,8 +27,15 @@ async function getAllAdditionalStopOnTheWaysController(_req, res, _next) {
   return res.json(additionalStopOnTheWays);
 }
 
+async function deleteAdditionalStopOnTheWayController(req, res, _next) {
+  await deleteAdditionalStopOnTheWay(req.params.additionalStopId);
+  const response = successResponse("Additional stop deleted successfully");
+  return res.json(response);
+}
+
 module.exports = {
   createAdditionalStopOnTheWayController,
   updateAdditionalStopOnTheWayController,
   getAllAdditionalStopOnTheWaysController,
+  deleteAdditionalStopOnTheWayController,
 };

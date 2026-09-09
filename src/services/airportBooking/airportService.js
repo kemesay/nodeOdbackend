@@ -39,6 +39,11 @@ async function toggleAirportStatus(airportId) {
   return airport;
 }
 
+async function deleteAirport(airportId) {
+  const airport = await getAirportById(airportId);
+  await airport.destroy();
+}
+
 async function getAirportById(airportId) {
   const airport = await Airport.findByPk(airportId);
   if (!airport)
@@ -52,5 +57,6 @@ module.exports = {
   getAllAirports,
   getAllActiveAirports,
   toggleAirportStatus,
+  deleteAirport,
   getAirportById,
 };

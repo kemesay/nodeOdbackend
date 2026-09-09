@@ -3,6 +3,8 @@ const {
   updateAirportPickupPreference,
   getAllAirportPickupPreferences,
   disableAirportPickupPreference,
+  enableAirportPickupPreference,
+  deleteAirportPickupPreference,
 } = require("../../services/airportBooking/airportPickupPreferenceService.js");
 
 const { successResponse } = require("../../utils/responseUtil.js");
@@ -36,9 +38,27 @@ async function disableAirportPickupPreferenceController(req, res, _next) {
   return res.json(response);
 }
 
+async function enableAirportPickupPreferenceController(req, res, _next) {
+  await enableAirportPickupPreference(req.params.pickupPreferenceId);
+  const response = successResponse(
+    "Airport Pickup Preference enabled successfully"
+  );
+  return res.json(response);
+}
+
+async function deleteAirportPickupPreferenceController(req, res, _next) {
+  await deleteAirportPickupPreference(req.params.pickupPreferenceId);
+  const response = successResponse(
+    "Airport Pickup Preference deleted successfully"
+  );
+  return res.json(response);
+}
+
 module.exports = {
   createAirportPickupPreferenceController,
   updateAirportPickupPreferenceController,
   getAllAirportPickupPreferencesController,
   disableAirportPickupPreferenceController,
+  enableAirportPickupPreferenceController,
+  deleteAirportPickupPreferenceController,
 };

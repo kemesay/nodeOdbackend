@@ -4,6 +4,7 @@ const {
   createAdditionalStopOnTheWayController,
   updateAdditionalStopOnTheWayController,
   getAllAdditionalStopOnTheWaysController,
+  deleteAdditionalStopOnTheWayController,
 } = require("../../controllers/booking/additionalStopOnTheWayController.js");
 
 const {
@@ -19,13 +20,18 @@ const router = express.Router();
 
 router.post(
   "/",
-  validate(validateAdditionalStopOnTheWay),
+  [auth, admin, validate(validateAdditionalStopOnTheWay)],
   createAdditionalStopOnTheWayController
 );
 router.put(
   "/:additionalStopId",
-  validate(validateAdditionalStopOnTheWayUpdate),
+  [auth, admin, validate(validateAdditionalStopOnTheWayUpdate)],
   updateAdditionalStopOnTheWayController
+);
+router.delete(
+  "/:additionalStopId",
+  [auth, admin],
+  deleteAdditionalStopOnTheWayController
 );
 router.get("/", getAllAdditionalStopOnTheWaysController);
 

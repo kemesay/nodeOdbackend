@@ -5,6 +5,8 @@ const {
   updateAirportPickupPreferenceController,
   getAllAirportPickupPreferencesController,
   disableAirportPickupPreferenceController,
+  enableAirportPickupPreferenceController,
+  deleteAirportPickupPreferenceController,
 } = require("../../controllers/airportBooking/airportPickupPreferenceController.js");
 
 const {
@@ -19,13 +21,28 @@ const router = express.Router();
 
 router.post(
   "/",
-  validate(validateAirportPickupPreference),
+  [auth, admin, validate(validateAirportPickupPreference)],
   createAirportPickupPreferenceController
 );
-router.put("/:pickupPreferenceId", updateAirportPickupPreferenceController);
+router.put(
+  "/:pickupPreferenceId",
+  [auth, admin],
+  updateAirportPickupPreferenceController
+);
 router.put(
   "/:pickupPreferenceId/disable",
+  [auth, admin],
   disableAirportPickupPreferenceController
+);
+router.put(
+  "/:pickupPreferenceId/enable",
+  [auth, admin],
+  enableAirportPickupPreferenceController
+);
+router.delete(
+  "/:pickupPreferenceId",
+  [auth, admin],
+  deleteAirportPickupPreferenceController
 );
 router.get("/", getAllAirportPickupPreferencesController);
 

@@ -9,6 +9,7 @@
  *   } = require("../config/square.js");
  */
 const { SquareClient, SquareEnvironment } = require("square");
+const logger = require("./logging.js");
 const { isSquarePaymentProvider } = require("./paymentConfig.js");
 const {
   getSquareCredentials,
@@ -39,6 +40,10 @@ function getSquareClient() {
   const env = creds.isProduction
     ? SquareEnvironment.Production
     : SquareEnvironment.Sandbox;
+
+  logger.info(
+    `Square client initialized in ${creds.environment.toUpperCase()} mode (locationId=${creds.locationId})`
+  );
 
   _client = new SquareClient({
     token: creds.accessToken,

@@ -74,14 +74,13 @@ async function resolveCaptureAmountDollars(
     throw new ValidationError("Invalid payment amount for this booking.");
   }
 
-  // Capture cannot exceed the authorized hold (Square uses integer cents).
-  if (existingTx?.status === "AUTHORIZED" && existingTx.amountCents > 0) {
-    const authorizedDollars = roundMoney(existingTx.amountCents / 100);
-    if (amount > authorizedDollars) {
-      amount = authorizedDollars;
-    }
-  }
-
+  // Deliberately NOT capped to the authorized hold here — the booking's
+  // current total in the database is the source of truth at charge time
+  // (it may have gone up or down since the original authorization). The
+  // caller (handleAdminTakePayment) is responsible for reconciling either
+  // direction against the existing hold: capture-and-refund-the-difference
+  // when the current total is lower, or release-and-recharge when it's
+  // higher — Square can never capture more than the original hold.
   return amount;
 }
 
@@ -647,17 +646,83 @@ async function handleAdminTakePayment({
   }
 
   if (tx?.squarePaymentId && tx.status === "AUTHORIZED") {
+    const authorizedDollars = roundMoney(tx.amountCents / 100);
+
+    if (amount > authorizedDollars) {
+      // The booking's current total now exceeds what was held at booking
+      // time (e.g. the trip was edited/repriced upward after approval).
+      // Square can never capture more than the original hold, so the only
+      // way to charge the correct, higher amount is to release the old
+      // hold and open a fresh charge for the full updated total — falls
+      // through to the same recharge path used below when there's no
+      // valid hold to capture at all.
+      try {
+        await squarePaymentService.cancelPayment(tx.squarePaymentId);
+      } catch (err) {
+        if (!isCanceledSquarePaymentError(err)) {
+          throw err;
+        }
+      }
+      await tx.update({ status: "CANCELED" });
+      emitPaymentTransactionUpdated(tx);
+      return chargeSavedCardForBooking({
+        booking,
+        ledgerBookingType,
+        bookingId,
+        amount,
+        tx,
+      });
+    }
+
     try {
-      const payment = await squarePaymentService.capturePayment(
-        tx.squarePaymentId,
-        amount
+      // Square's CompletePayment always captures the full authorized hold
+      // (it has no partial-capture parameter). If the current total is
+      // lower than the hold (e.g. a discount was applied after approval),
+      // capture the full hold, then immediately refund the difference so
+      // the customer nets out to the correct, current total.
+      const discountDollars = roundMoney(
+        Math.max(0, authorizedDollars - amount)
       );
+
+      const payment = await squarePaymentService.capturePayment(
+        tx.squarePaymentId
+      );
+
+      // Record the capture immediately, at the full authorized amount —
+      // this is Square's actual state right now. If the discount refund
+      // below fails, our records must still show the money was captured
+      // (not still just "authorized"), so a retry never double-captures.
       await tx.update({
         status: "COMPLETED",
-        amountCents: dollarsToCents(amount),
+        amountCents: dollarsToCents(authorizedDollars),
         rawResponse: squarePaymentService.sanitizePaymentResponse(payment),
       });
       emitPaymentTransactionUpdated(tx);
+
+      if (discountDollars > 0) {
+        try {
+          await squarePaymentService.refundPayment(
+            tx.squarePaymentId,
+            discountDollars,
+            `${booking.confirmationNumber}-discount-refund-${randomUUID()}`
+          );
+        } catch (refundErr) {
+          // The full amount was already captured above (tx is correctly
+          // recorded as COMPLETED at the full amount) — only the discount
+          // refund failed. Surface this distinctly so an admin knows to
+          // manually refund $${discountDollars} rather than retry
+          // "Take Payment" (which would now see a COMPLETED transaction
+          // and mark the booking paid without ever retrying the refund).
+          throw new ValidationError(
+            `Payment of $${authorizedDollars} was captured, but the ` +
+              `$${discountDollars} discount refund failed: ` +
+              `${refundErr.message}. Please refund $${discountDollars} to ` +
+              `this customer manually via Square.`
+          );
+        }
+        await tx.update({ amountCents: dollarsToCents(amount) });
+        emitPaymentTransactionUpdated(tx);
+      }
       try {
         await persistSquareCardFromPayment({
           payment,

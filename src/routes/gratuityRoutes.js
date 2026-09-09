@@ -2,6 +2,7 @@ const express = require("express");
 
 const {
   createOrUpdateGratuityController,
+  updateGratuityController,
   toggleGratuityStatusController,
   getAllGratuitiesController,
   getAllActiveGratuitiesController,
@@ -19,6 +20,11 @@ router.post(
   "/",
   [auth, admin, validate(validateGratuity)],
   createOrUpdateGratuityController
+);
+router.put(
+  "/:gratuityId",
+  [auth, admin, validate(validateGratuity)],
+  updateGratuityController
 );
 router.put(
   "/:gratuityId/toggle-status",

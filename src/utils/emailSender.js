@@ -76,7 +76,7 @@
 //     const info = await transporter.sendMail(options);
 //     console.log("Email sent:", info.response);
 //   } catch (error) {
-//     console.error("Error occurred:", error);
+//     logger.error("Email send failed: " + error.message, { stack: error.stack });
 //   }
 // }
 
@@ -113,7 +113,7 @@
 //     const info = await transporter.sendMail(options);
 //     console.log("Email sent:", info.response);
 //   } catch (error) {
-//     console.error("Error occurred:", error);
+//     logger.error("Email send failed: " + error.message, { stack: error.stack });
 //   }
 // }
 
@@ -150,7 +150,7 @@
 //     const emailResponse = await transporter.sendMail(options);
 //     console.log("Email sent:", emailResponse.response);
 //   } catch (error) {
-//     console.error("Error occurred:", error);
+//     logger.error("Email send failed: " + error.message, { stack: error.stack });
 //   }
 // }
 
@@ -269,7 +269,7 @@
 //     const userInfo = await transporter.sendMail(userOptions);
 //     console.log("User Email sent:", userInfo.response);
 //   } catch (error) {
-//     console.error("Error occurred:", error);
+//     logger.error("Email send failed: " + error.message, { stack: error.stack });
 //   }
 // }
 // module.exports = {
@@ -286,15 +286,17 @@ const nodemailer = require("nodemailer");
 const ejs = require("ejs");
 const fs = require("fs");
 const path = require("path");
+const logger = require("../config/logging.js");
 const {
   getP2PReservationDetails,
   getHourlyCharterDetails,
   getAirportServiceDetails,
 } = require("./emailSenderHelper");
 
-const fromEmail = "bookingnotification@odatransportation.com";
-// const adminEmail = "abditirunehdev@gmail.com";
-const adminEmail = "info@odatransportation.com";
+// Sourced from .env (see EMAIL_* keys) instead of hardcoded, so rotating the
+// password or fixing the SMTP hostname doesn't require a code change/redeploy.
+const fromEmail = process.env.EMAIL_FROM || "bookingnotification@odatransportation.com";
+const adminEmail = process.env.EMAIL_ADMIN_TO || "info@odatransportation.com";
 
 const dateOptions = {
   year: "numeric",
@@ -307,14 +309,12 @@ const dateOptions = {
 
 // SMTP configuration
 const smtpConfig = {
-  host: "mail.odatransportation.com",
-  port: 465,
-  secure: true, // true for 465, false for other ports
+  host: process.env.EMAIL_HOST || "mail.odatransportation.com",
+  port: Number(process.env.EMAIL_PORT) || 465,
+  secure: (process.env.EMAIL_SECURE ?? "true") === "true", // true for 465, false for other ports
   auth: {
-    user: "bookingnotification@odatransportation.com",
-    pass: "yvVrFT@K[1I#",
-    // user: "info@odatransportation.com",
-    // pass: "H)PH!_YUS,LE",
+    user: process.env.EMAIL_USER || "bookingnotification@odatransportation.com",
+    pass: process.env.EMAIL_PASSWORD || "yvVrFT@K[1I#",
   },
 };
 
@@ -358,9 +358,9 @@ async function sendBookingApprovalEmail(data, action, userEmail) {
 
   try {
     const info = await transporter.sendMail(options);
-    console.log("Email sent:", info.response);
+    logger.info("Email sent: " + info.response);
   } catch (error) {
-    console.error("Error occurred:", error);
+    logger.error("Email send failed: " + error.message, { stack: error.stack });
   }
 }
 
@@ -395,9 +395,9 @@ async function sendResetPasswordEmail(email, fullName, resetToken) {
 
   try {
     const info = await transporter.sendMail(options);
-    console.log("Email sent:", info.response);
+    logger.info("Email sent: " + info.response);
   } catch (error) {
-    console.error("Error occurred:", error);
+    logger.error("Email send failed: " + error.message, { stack: error.stack });
   }
 }
 
@@ -432,9 +432,9 @@ async function paymentNotification(userEmail, data) {
 
     // Send emails
     const emailResponse = await transporter.sendMail(options);
-    console.log("Email sent:", emailResponse.response);
+    logger.info("Email sent: " + emailResponse.response);
   } catch (error) {
-    console.error("Error occurred:", error);
+    logger.error("Email send failed: " + error.message, { stack: error.stack });
   }
 }
 
@@ -485,7 +485,7 @@ async function sendBookingConfirmationAndAdminEmail(bookingType, booking, option
         throw new Error(`Invalid booking type: ${bookingType}`);
       }
     } catch (error) {
-      console.error("Error getting reservation details:", error);
+      logger.error("Error getting reservation details: " + error.message, { stack: error.stack });
       throw new Error(`Failed to get reservation details: ${error.message}`);
     }
 
@@ -557,12 +557,12 @@ async function sendBookingConfirmationAndAdminEmail(bookingType, booking, option
     };
 
     const adminInfo = await transporter.sendMail(adminOptions);
-    console.log("Admin Email sent:", adminInfo.response);
+    logger.info("Admin email sent: " + adminInfo.response);
 
     const userInfo = await transporter.sendMail(userOptions);
-    console.log("User Email sent:", userInfo.response);
+    logger.info("User email sent: " + userInfo.response);
   } catch (error) {
-    console.error("Error occurred:", error);
+    logger.error("Email send failed: " + error.message, { stack: error.stack });
   }
 }
 

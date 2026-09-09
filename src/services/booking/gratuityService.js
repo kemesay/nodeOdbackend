@@ -12,6 +12,17 @@ async function createOrUpdateGratuity(gratuityData) {
   else return await Gratuity.create(gratuityData);
 }
 
+async function updateGratuity(gratuityId, gratuityData) {
+  const gratuity = await getGratuityById(gratuityId);
+  const percentage =
+    gratuityData.percentage !== undefined
+      ? gratuityData.percentage
+      : gratuity.percentage;
+  gratuityData.description =
+    percentage === 0 ? "Will tip in cash" : `${percentage}%`;
+  return await gratuity.update(gratuityData);
+}
+
 async function toggleGratuityStatus(gratuityId) {
   const gratuity = await getGratuityById(gratuityId);
 
@@ -53,6 +64,7 @@ async function getGratuityById(gratuityId) {
 
 module.exports = {
   createOrUpdateGratuity,
+  updateGratuity,
   getAllGratuities,
   getAllActiveGratuities,
   deleteGratuity,

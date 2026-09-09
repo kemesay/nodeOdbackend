@@ -27,6 +27,21 @@ async function disableAirportPickupPreference(pickupPreferenceId) {
   await airportPickupPreference.save();
 }
 
+async function enableAirportPickupPreference(pickupPreferenceId) {
+  const airportPickupPreference = await getAirportPickupPreferenceById(
+    pickupPreferenceId
+  );
+  airportPickupPreference.status = "Active";
+  await airportPickupPreference.save();
+}
+
+async function deleteAirportPickupPreference(pickupPreferenceId) {
+  const airportPickupPreference = await getAirportPickupPreferenceById(
+    pickupPreferenceId
+  );
+  await airportPickupPreference.destroy();
+}
+
 async function getAirportPickupPreferenceById(pickupPreferenceId) {
   const airportPickupPreference = await AirportPickupPreference.findByPk(
     pickupPreferenceId
@@ -43,5 +58,7 @@ module.exports = {
   updateAirportPickupPreference,
   getAllAirportPickupPreferences,
   disableAirportPickupPreference,
+  enableAirportPickupPreference,
+  deleteAirportPickupPreference,
   getAirportPickupPreferenceById,
 };

@@ -335,6 +335,13 @@ async function getDriverUsers() {
 
 // TODO: if user existing and deleted softly
 async function updateUser(userId, updatedUserData) {
+  // This path has no password-hashing hook (only User.beforeCreate does),
+  // so a raw value here would either be stored in plaintext or silently
+  // overwrite the real hash. Password changes must go through the
+  // dedicated change-password flow, never this generic profile update.
+  delete updatedUserData.password;
+  delete updatedUserData.role;
+
   // Check if the provided email or phone number already exists and does not belong to the current user
   const { email, phoneNumber } = updatedUserData;
 

@@ -90,10 +90,13 @@ const AdditionalStopOnTheWay = sequelize.define(
 const validateAdditionalStopOnTheWay = Joi.object({
   stopType: Joi.string().valid("Oneway", "Roundtrip").required(),
   additionalStopPrice: Joi.number().precision(2).required(),
+  currency: Joi.string().length(3).uppercase().optional(),
 });
 
 const validateAdditionalStopOnTheWayUpdate = Joi.object({
+  stopType: Joi.string().valid("Oneway", "Roundtrip").optional(),
   additionalStopPrice: Joi.number().min(1).precision(2).required(),
+  currency: Joi.string().length(3).uppercase().optional(),
 });
 
 module.exports = {

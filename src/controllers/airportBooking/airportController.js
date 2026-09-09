@@ -3,8 +3,10 @@ const {
   updateAirport,
   getAllAirports,
   toggleAirportStatus,
+  deleteAirport,
   getAllActiveAirports,
 } = require("../../services/airportBooking/airportService.js");
+const { successResponse } = require("../../utils/responseUtil.js");
 
 async function createAirportController(req, res, _next) {
   const airport = await createAirport(req.body);
@@ -35,10 +37,17 @@ async function getAllActiveAirportsController(_req, res, _next) {
   return res.json(airports);
 }
 
+async function deleteAirportController(req, res, _next) {
+  await deleteAirport(req.params.airportId);
+  const response = successResponse("Airport deleted successfully");
+  return res.json(response);
+}
+
 module.exports = {
   createAirportController,
   updateAirportController,
   getAllAirportsController,
   getAllActiveAirportsController,
   toggleAirportStatusController,
+  deleteAirportController,
 };

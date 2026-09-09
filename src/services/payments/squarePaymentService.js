@@ -131,20 +131,16 @@ async function getPayment(squarePaymentId) {
   return response.payment;
 }
 
-async function capturePayment(squarePaymentId, amountDollars) {
-  const body = {};
-
-  if (amountDollars != null) {
-    body.amount_money = {
-      amount: dollarsToCents(amountDollars),
-      currency: "USD",
-    };
-  }
-
+// Square's CompletePayment endpoint takes no body and always captures the
+// full originally-authorized hold — it has no partial-capture parameter.
+// To charge less than the hold (e.g. a discount applied after approval),
+// capture in full here and then refund the difference; see
+// resolveDiscountedCapture() in bookingSquarePayment.js.
+async function capturePayment(squarePaymentId) {
   const response = await squareFetch(
     `/v2/payments/${encodeURIComponent(squarePaymentId)}/complete`,
     "POST",
-    body
+    {}
   );
   return response.payment;
 }

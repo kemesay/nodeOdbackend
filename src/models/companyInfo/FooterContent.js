@@ -128,7 +128,8 @@ const validateFooterContent = Joi.object({
   contactEmail: Joi.string().email().required().label("Contact Email"),
   contactPhoneNumber: Joi.string()
     .pattern(/^[0-9]{10,15}$/)
-    .message("Please provide a valid phone number."),
+    .message("Please provide a valid phone number.")
+    .required(),
   addressZipCode: Joi.string()
     .regex(/^\d{5}(?:[-\s]\d{4})?$/) // Regex for US ZIP codes
     .required()
