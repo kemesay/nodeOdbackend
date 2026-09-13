@@ -754,6 +754,7 @@ const validatePointToPointBook = Joi.object({
       sortOrder: Joi.number().integer().default(0),
     })
   ).optional(),
+  promoCode: Joi.string().trim().uppercase().max(20).optional(),
 })
   .custom((value, helpers) => {
     const { isLegacyPaymentProvider } = require("../config/paymentConfig.js");

@@ -752,6 +752,7 @@ const validateHourlyCharterBook = Joi.object({
     }),
     otherwise: Joi.forbidden(),
   }),
+  promoCode: Joi.string().trim().uppercase().max(20).optional(),
 })
   .custom((value, helpers) => {
     const { isLegacyPaymentProvider } = require("../config/paymentConfig.js");

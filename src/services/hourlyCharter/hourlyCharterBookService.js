@@ -328,6 +328,11 @@ const {
 
 const { bookingNotification, bookingUpdateNotification } = require("../../utils/emailSender");
 const generateConfirmationNumber = require("../bookingUtils.js");
+const {
+  validatePromoCode,
+  redeemPromoCode,
+  creditReferralRewardIfCompleted,
+} = require("../promoCodeService.js");
 
 async function createHourlyCharterBook(hourlyCharterBookData) {
   const {
@@ -346,6 +351,7 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
     square,
     squareCardId,
     isGuestBooking,
+    promoCode,
     ...otherData
   } = hourlyCharterBookData;
 
@@ -404,13 +410,44 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
     const totalTripFee = await calculateHourlyCharterTotalTripPrice(
       hourlyCharterBook
     );
-    hourlyCharterBook.totalTripFeeInDollars = totalTripFee;
-    await hourlyCharterBook.save();
 
     // LIVE mode: pre-authorize (selectedHours + bufferHours) so the hold
     // covers potential overtime — actual capture happens at trip end.
     const billingMode = hourlyCharterBook.billingMode || "PRE_BOOKED";
-    let chargeAmount = totalTripFee;
+
+    // A LIVE pre-auth hold is sized off selectedHours+buffer, not
+    // totalTripFee, so a fare discount doesn't translate into a smaller hold
+    // in any well-defined way. Promo codes are PRE_BOOKED-only for now.
+    if (promoCode && billingMode === "LIVE") {
+      throw new ValidationError(
+        "Promo codes can only be applied to pre-booked hourly charters, not live-metered ones."
+      );
+    }
+
+    let appliedPromoCode = null;
+    let discountAmount = 0;
+    let discountedTripFee = totalTripFee;
+    if (promoCode) {
+      const result = await validatePromoCode({
+        code: promoCode,
+        userId,
+        bookingType: "Hourly Charter",
+        fareAmount: totalTripFee,
+        bookingId: hourlyCharterBook.hourlyCharterBookId,
+      });
+      appliedPromoCode = result.promoCode;
+      discountAmount = result.discount;
+      discountedTripFee = Math.max(totalTripFee - discountAmount, 0);
+    }
+
+    hourlyCharterBook.totalTripFeeInDollars = discountedTripFee;
+    if (appliedPromoCode) {
+      hourlyCharterBook.discountAmountInDollars = discountAmount;
+      hourlyCharterBook.hasDiscountApplied = true;
+    }
+    await hourlyCharterBook.save();
+
+    let chargeAmount = discountedTripFee;
     if (billingMode === "LIVE" && hourlyCharterBook.Car) {
       const bufferHours = hourlyCharterBook.preAuthBufferHours || 2;
       const gratuityPct = asMoney(hourlyCharterBook.Gratuity?.percentage);
@@ -441,6 +478,16 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
     }
     hourlyCharterBook.paymentStatus = paymentResult.paymentStatus;
     await hourlyCharterBook.save();
+
+    if (appliedPromoCode) {
+      await redeemPromoCode({
+        promoCode: appliedPromoCode,
+        userId,
+        bookingId: hourlyCharterBook.hourlyCharterBookId,
+        bookingType: "Hourly Charter",
+        discountApplied: discountAmount,
+      });
+    }
   } catch (error) {
     // Payment (or anything else in this block) failed — the booking must
     // not survive as a payment-less "PENDING_APPROVAL" row the customer can
@@ -615,7 +662,13 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       if (updatedData.discountAmount && updatedData.bookingStatus === 'ACCEPTED') {
         await applyDiscountToHourlyCharterBook(hourlyCharterBookId, updatedData.discountAmount);
       }
-      return await hourlyCharterBook.save();
+      const saved = await hourlyCharterBook.save();
+
+      if (updatedData.bookingStatus === "COMPLETED") {
+        await creditReferralRewardIfCompleted("Hourly Charter", hourlyCharterBookId);
+      }
+
+      return saved;
     }
 
     async function applyDiscountToHourlyCharterBook(hourlyCharterBookId, discountAmount) {

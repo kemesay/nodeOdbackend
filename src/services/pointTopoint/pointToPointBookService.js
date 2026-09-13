@@ -333,6 +333,11 @@ const { calculateP2PTotalTripPrice } = require("../utilTripService.js");
 const generateConfirmationNumber = require("../bookingUtils.js");
 const { signBookingRoomToken } = require("../../realtime/socketRoomToken.js");
 const { AirportBook } = require("../../models/airportBooking/AirportBook.js");
+const {
+  validatePromoCode,
+  redeemPromoCode,
+  creditReferralRewardIfCompleted,
+} = require("../promoCodeService.js");
 
 async function createPointToPointBook(pointToPointBookData) {
   const {
@@ -348,6 +353,7 @@ async function createPointToPointBook(pointToPointBookData) {
     cardDetails,
     square,
     squareCardId,
+    promoCode,
     ...otherData
   } = pointToPointBookData;
 
@@ -416,14 +422,38 @@ async function createPointToPointBook(pointToPointBookData) {
 
     //calculate total trip fee
     const totalTripFee = await calculateP2PTotalTripPrice(pointToPointBook);
-    pointToPointBook.totalTripFeeInDollars = totalTripFee;
+
+    // Promo code, if provided, is validated (and its discount subtracted)
+    // before payment is charged, so the customer's card is only ever
+    // charged the discounted amount.
+    let appliedPromoCode = null;
+    let discountAmount = 0;
+    let chargeAmount = totalTripFee;
+    if (promoCode) {
+      const result = await validatePromoCode({
+        code: promoCode,
+        userId,
+        bookingType: "Point to point",
+        fareAmount: totalTripFee,
+        bookingId: pointToPointBook.pointToPointBookId,
+      });
+      appliedPromoCode = result.promoCode;
+      discountAmount = result.discount;
+      chargeAmount = Math.max(totalTripFee - discountAmount, 0);
+    }
+
+    pointToPointBook.totalTripFeeInDollars = chargeAmount;
+    if (appliedPromoCode) {
+      pointToPointBook.discountAmountInDollars = discountAmount;
+      pointToPointBook.hasDiscountApplied = true;
+    }
     pointToPointBook = await pointToPointBook.save();
 
     const paymentResult = await processBookingPayment({
       bookingType: "P2P",
       bookingId: pointToPointBook.pointToPointBookId,
       confirmationNumber,
-      amountDollars: totalTripFee,
+      amountDollars: chargeAmount,
       paymentMethod,
       square,
       squareCardId,
@@ -438,6 +468,16 @@ async function createPointToPointBook(pointToPointBookData) {
     }
     pointToPointBook.paymentStatus = paymentResult.paymentStatus;
     await pointToPointBook.save();
+
+    if (appliedPromoCode) {
+      await redeemPromoCode({
+        promoCode: appliedPromoCode,
+        userId,
+        bookingId: pointToPointBook.pointToPointBookId,
+        bookingType: "Point to point",
+        discountApplied: discountAmount,
+      });
+    }
   } catch (error) {
     // Payment (or anything else in this block) failed — the booking must
     // not survive as a payment-less "PENDING_APPROVAL" row the customer can
@@ -643,7 +683,14 @@ async function updateBookingStatus(pointToPointBookId, updatedData) {
   if (updatedData.discountAmount && updatedData.bookingStatus === 'ACCEPTED') {
     await applyDiscountToPointToPointBook(pointToPointBookId, updatedData.discountAmount);
   }
-  return await pointToPointBook.save();
+  const saved = await pointToPointBook.save();
+
+  if (updatedData.bookingStatus === "COMPLETED") {
+    // No-op unless this ride was the triggering ride for a pending referral reward.
+    await creditReferralRewardIfCompleted("Point to point", pointToPointBookId);
+  }
+
+  return saved;
 }
 
 async function deletePointToPointBook(pointToPointBookId) {

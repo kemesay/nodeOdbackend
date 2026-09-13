@@ -1,12 +1,44 @@
 const { Sequelize } = require("sequelize");
 
+/**
+ * Switch environment: set `DB_ENV=production` (or `development`, the
+ * default) in `.env`. Same concept as SQUARE_ENV — both credential sets
+ * live in `.env` at once; only DB_ENV changes which one is active.
+ */
+const DB_ENV = (process.env.DB_ENV || "development").trim().toLowerCase();
+const isProduction = DB_ENV === "production";
+const envPrefix = isProduction ? "DB_PRODUCTION_" : "DB_DEV_";
+
+function envValue(field, fallback) {
+  const value = process.env[`${envPrefix}${field}`];
+  return value != null && value !== "" ? value : fallback;
+}
+
+const dbConfig = {
+  // These fallbacks are the DB this app has always pointed at during
+  // development — kept so nothing breaks for anyone who hasn't added
+  // DB_DEV_* to their .env yet. Production has no such fallback: it must be
+  // set explicitly in .env, never hardcoded here.
+  host: envValue("HOST", isProduction ? undefined : "192.249.113.151"),
+  port: Number(envValue("PORT", isProduction ? undefined : 3306)),
+  username: envValue("USERNAME", isProduction ? undefined : "odatra5_dev"),
+  database: envValue("DATABASE", isProduction ? undefined : "odatra5_dev_db"),
+  password: envValue("PASSWORD", isProduction ? undefined : "0fewNqU_,qdj"),
+};
+
+if (!dbConfig.host || !dbConfig.username || !dbConfig.database) {
+  throw new Error(
+    `Database is not configured for DB_ENV=${DB_ENV}. Set ${envPrefix}HOST, ${envPrefix}USERNAME, ${envPrefix}DATABASE and ${envPrefix}PASSWORD in .env.`
+  );
+}
+
 const sequelize = new Sequelize({
   dialect: "mysql",
-  host: "192.249.113.151",
-  port: 3306,
-  username: "odatra5_dev",
-  database: "odatra5_dev_db",
-  password: "0fewNqU_,qdj",
+  host: dbConfig.host,
+  port: dbConfig.port,
+  username: dbConfig.username,
+  database: dbConfig.database,
+  password: dbConfig.password,
   logging: false,
   pool: {
     max: 20,
@@ -16,11 +48,9 @@ const sequelize = new Sequelize({
   },
   dialectOptions: {
     // Remote host does not offer TLS; MariaDB/MySQL client defaults require SSL.
-    ssl: false,
+    ssl: (process.env.DB_SSL || "false").toLowerCase() === "true",
   },
 });
-
-
 
 // const sequelize = new Sequelize({
 //   dialect: "postgres",

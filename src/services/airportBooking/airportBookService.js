@@ -396,6 +396,11 @@ const { calculateAirportBookingTotalTripPrice } = require("../utilTripService");
 
 const { bookingNotification, bookingUpdateNotification } = require("../../utils/emailSender");
 const generateConfirmationNumber = require("../bookingUtils.js");
+const {
+  validatePromoCode,
+  redeemPromoCode,
+  creditReferralRewardIfCompleted,
+} = require("../promoCodeService.js");
 
 async function createAirportBook(airportBookData) {
   const {
@@ -416,6 +421,7 @@ async function createAirportBook(airportBookData) {
     cardDetails,
     square,
     squareCardId,
+    promoCode,
     ...otherData
   } = airportBookData;
 
@@ -525,14 +531,35 @@ async function createAirportBook(airportBookData) {
     airportBook = await getAirportBookById(airportBook.airportBookId);
 
     const totalTripFee = await calculateAirportBookingTotalTripPrice(airportBook);
-    airportBook.totalTripFeeInDollars = totalTripFee;
+
+    let appliedPromoCode = null;
+    let discountAmount = 0;
+    let chargeAmount = totalTripFee;
+    if (promoCode) {
+      const result = await validatePromoCode({
+        code: promoCode,
+        userId,
+        bookingType: "Airport Service",
+        fareAmount: totalTripFee,
+        bookingId: airportBook.airportBookId,
+      });
+      appliedPromoCode = result.promoCode;
+      discountAmount = result.discount;
+      chargeAmount = Math.max(totalTripFee - discountAmount, 0);
+    }
+
+    airportBook.totalTripFeeInDollars = chargeAmount;
+    if (appliedPromoCode) {
+      airportBook.discountAmountInDollars = discountAmount;
+      airportBook.hasDiscountApplied = true;
+    }
     await airportBook.save();
 
     const paymentResult = await processBookingPayment({
       bookingType: "AIRPORT",
       bookingId: airportBook.airportBookId,
       confirmationNumber,
-      amountDollars: totalTripFee,
+      amountDollars: chargeAmount,
       paymentMethod,
       square,
       squareCardId,
@@ -547,6 +574,16 @@ async function createAirportBook(airportBookData) {
     }
     airportBook.paymentStatus = paymentResult.paymentStatus;
     await airportBook.save();
+
+    if (appliedPromoCode) {
+      await redeemPromoCode({
+        promoCode: appliedPromoCode,
+        userId,
+        bookingId: airportBook.airportBookId,
+        bookingType: "Airport Service",
+        discountApplied: discountAmount,
+      });
+    }
   } catch (error) {
     // Payment (or anything else in this block) failed — the booking must
     // not survive as a payment-less "PENDING_APPROVAL" row the customer can
@@ -728,7 +765,13 @@ async function updateBookingStatus(airportBookId, updatedData) {
     await applyDiscountToAirportBook(airportBookId, updatedData.discountAmount);
   }
 
-  return await airportBook.save();
+  const saved = await airportBook.save();
+
+  if (updatedData.bookingStatus === "COMPLETED") {
+    await creditReferralRewardIfCompleted("Airport Service", airportBookId);
+  }
+
+  return saved;
 }
 
 async function applyDiscountToAirportBook(airportBookId, discountAmount) {

@@ -16,15 +16,19 @@ const {
 const admin = require("../../middleware/admin.js");
 const auth = require("../../middleware/auth.js");
 const validate = require("../../middleware/validateReqBody.js");
+const {
+  loginRateLimiter,
+  passwordResetRateLimiter,
+} = require("../../middleware/rateLimiter.js");
 
-router.post("/login", validate(validateUserAuth), loginController);
+router.post("/login", [loginRateLimiter, validate(validateUserAuth)], loginController);
 router.post(
   "/change-password",
   [auth, validate(validatePasswordChange)],
   changePasswordController
 );
 
-router.post('/forgot-password',forgotPasswordController);
-router.post('/reset-password',validate(validatePasswordReset), resetPasswordController);
+router.post('/forgot-password', passwordResetRateLimiter, forgotPasswordController);
+router.post('/reset-password', passwordResetRateLimiter, validate(validatePasswordReset), resetPasswordController);
 
 module.exports = router;
