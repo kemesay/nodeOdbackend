@@ -221,9 +221,22 @@ const codeUpper = () =>
       "string.pattern.base": "Promo code must be 4-20 letters/numbers, no spaces or symbols.",
     });
 
+// Preserves whatever casing the admin typed (e.g. "OdaCar") for display —
+// only used at creation time. Matching still works regardless of how a
+// customer later types it: the `code` column's collation (*_ci, confirmed
+// on the live DB) makes MySQL equality comparisons case-insensitive, so
+// codeUpper()'s forced-uppercase lookups elsewhere still find this row.
+const codeAsEntered = () =>
+  Joi.string()
+    .trim()
+    .pattern(/^[A-Za-z0-9]{4,20}$/)
+    .messages({
+      "string.pattern.base": "Promo code must be 4-20 letters/numbers, no spaces or symbols.",
+    });
+
 /** Admin creating a public/social-media campaign code. */
 const validateCreatePromoCode = Joi.object({
-  code: codeUpper().required(),
+  code: codeAsEntered().required(),
   discountType: Joi.string().valid("percent", "flat").default("percent"),
   discountValue: Joi.number().min(0.01).required(),
   maxDiscountAmount: Joi.number().min(0.01).allow(null),
