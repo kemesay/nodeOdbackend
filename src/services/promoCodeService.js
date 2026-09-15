@@ -19,8 +19,9 @@ const logger = require("../config/logging.js");
 // first ride; the person who invited them gets a flat credit once that ride
 // is actually completed and paid for (not just booked) — mirrors Uber's
 // anti-abuse rule that a referral only pays out for a real, finished trip.
+// No ceiling on the rider's discount — it's the full 10% of whatever the
+// fare is, however large.
 const REFERRAL_RIDER_DISCOUNT_PERCENT = 10;
-const REFERRAL_RIDER_MAX_DISCOUNT = 15;
 const REFERRAL_REFERRER_REWARD_AMOUNT = 10;
 const REFERRAL_REWARD_CODE_VALID_DAYS = 90;
 
@@ -123,7 +124,6 @@ async function getOrCreateReferralCode(user) {
         ownerUserId: user.userId,
         discountType: "percent",
         discountValue: REFERRAL_RIDER_DISCOUNT_PERCENT,
-        maxDiscountAmount: REFERRAL_RIDER_MAX_DISCOUNT,
         firstRideOnly: true,
         maxRedemptionsPerUser: 1,
         isActive: true,
@@ -171,14 +171,16 @@ async function hasAnyOtherBooking(
 }
 
 function computeDiscount(promoCode, fareAmount) {
+  // No ceiling on a percent discount — it's always the exact percentage of
+  // the fare, however large. maxDiscountAmount is no longer read here: the
+  // column stays in the schema (in case a cap is ever wanted again for some
+  // future code), but nothing enforces it today. The only real floor/ceiling
+  // left is the fare itself — a discount can never exceed what's being paid.
   const raw =
     promoCode.discountType === "percent"
       ? (fareAmount * Number(promoCode.discountValue)) / 100
       : Number(promoCode.discountValue);
-  const capped = promoCode.maxDiscountAmount != null
-    ? Math.min(raw, Number(promoCode.maxDiscountAmount))
-    : raw;
-  return Math.min(Math.round(capped * 100) / 100, fareAmount);
+  return Math.min(Math.round(raw * 100) / 100, fareAmount);
 }
 
 /**

@@ -261,7 +261,10 @@ const validateCreatePromoCode = Joi.object({
   code: codeAsEntered().required(),
   discountType: Joi.string().valid("percent", "flat").default("percent"),
   discountValue: Joi.number().min(0.01).required(),
-  maxDiscountAmount: Joi.number().min(0.01).allow(null),
+  // A percent discount is never capped — always the full percentage of the
+  // fare. maxDiscountAmount stays a real column on the table (in case a cap
+  // is ever wanted again for some future code), but it's deliberately not
+  // accepted here since nothing in the discount calculation reads it.
   minFareAmount: Joi.number().min(0).allow(null),
   applicableBookingTypes: Joi.array().items(Joi.string().valid(...BOOKING_TYPES)).allow(null),
   firstRideOnly: Joi.boolean().default(false),
