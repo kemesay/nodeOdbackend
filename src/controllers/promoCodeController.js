@@ -69,7 +69,12 @@ async function myReferralCodeController(req, res, _next) {
   const promoCode = await getOrCreateReferralCode(req.user);
 
   const frontendBaseUrl = (process.env.FRONTEND_BASE_URL || "https://odatransportation.com").replace(/\/$/, "");
-  const link = `${frontendBaseUrl}/?promoCode=${encodeURIComponent(promoCode.code)}`;
+  // Routes through the smart app-store redirect page (not straight to the
+  // homepage) so a friend who doesn't have the app yet lands on the App
+  // Store / Play Store with their code carried through the install —
+  // see AppDownload.jsx. Someone who opens this on desktop still ends up
+  // on the regular booking page with the code pre-filled.
+  const link = `${frontendBaseUrl}/app-download?promoCode=${encodeURIComponent(promoCode.code)}`;
 
   return res.json({
     code: promoCode.code,
