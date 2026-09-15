@@ -8,6 +8,7 @@ const {
   setPromoCodeActiveController,
   validatePromoCodeController,
   myReferralCodeController,
+  myDiscountSummaryController,
 } = require("../controllers/promoCodeController.js");
 
 const {
@@ -24,6 +25,11 @@ router.post("/validate", [validate(validatePromoCodePreview)], validatePromoCode
 
 // Signed-in user's own personal referral code (created on first request).
 router.get("/my-referral-code", [auth], myReferralCodeController);
+
+// Signed-in user's own savings/rewards summary. Must stay above the admin
+// /:code route below, or Express would match "my-discount-summary" as a
+// :code param instead.
+router.get("/my-discount-summary", [auth], myDiscountSummaryController);
 
 // Admin campaign-code management.
 router.post("/", [auth, admin, validate(validateCreatePromoCode)], createPromoCodeController);

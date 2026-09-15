@@ -5,6 +5,7 @@ const {
   setPromoCodeActive,
   validatePromoCode,
   getOrCreateReferralCode,
+  getMyDiscountSummary,
 } = require("../services/promoCodeService.js");
 const authenticateToken = require("../utils/getUserFromToken.js");
 
@@ -79,8 +80,13 @@ async function myReferralCodeController(req, res, _next) {
     maxDiscountAmount:
       promoCode.maxDiscountAmount != null ? Number(promoCode.maxDiscountAmount) : null,
     link,
-    shareMessage: `Ride with ODA Transportation — use my link for ${promoCode.discountValue}% off your first ride: ${link}`,
+    shareMessage: `Ride with ODA Transportation and use my link for ${promoCode.discountValue}% off your first ride: ${link}`,
   });
+}
+
+async function myDiscountSummaryController(req, res, _next) {
+  const summary = await getMyDiscountSummary(req.user.userId);
+  return res.json(summary);
 }
 
 module.exports = {
@@ -90,4 +96,5 @@ module.exports = {
   setPromoCodeActiveController,
   validatePromoCodeController,
   myReferralCodeController,
+  myDiscountSummaryController,
 };

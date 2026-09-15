@@ -4,6 +4,9 @@
  * overwrote the other), and adds guest-identity columns to the redemption
  * ledger so guest bookings can finally be rate-limited.
  *
+ * Works against either dialect this project has used for local dev
+ * (MySQL/MariaDB in production, Postgres for local-only workarounds).
+ *
  * Usage: npm run db:promo-discount-columns
  */
 const { config } = require("dotenv");
@@ -17,7 +20,21 @@ const BOOKING_TABLES = [
   "airport_books",
 ];
 
+function isPostgres() {
+  return sequelize.getDialect() === "postgres";
+}
+
 async function columnExists(table, column) {
+  if (isPostgres()) {
+    const [rows] = await sequelize.query(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = :table AND column_name = :column
+       LIMIT 1`,
+      { replacements: { table, column } }
+    );
+    return rows.length > 0;
+  }
+
   const [rows] = await sequelize.query(
     `SELECT 1 FROM information_schema.columns
      WHERE table_schema = DATABASE() AND table_name = :table AND column_name = :column
@@ -32,13 +49,15 @@ async function addColumnIfMissing(table, column, ddl) {
     console.log(`  skip ${table}.${column} (exists)`);
     return;
   }
-  await sequelize.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${ddl}`);
+  const quotedTable = isPostgres() ? `"${table}"` : `\`${table}\``;
+  const quotedColumn = isPostgres() ? `"${column}"` : `\`${column}\``;
+  await sequelize.query(`ALTER TABLE ${quotedTable} ADD COLUMN ${quotedColumn} ${ddl}`);
   console.log(`  added ${table}.${column}`);
 }
 
 async function main() {
   await sequelize.authenticate();
-  console.log("Connected.");
+  console.log(`Connected (${sequelize.getDialect()}).`);
 
   for (const table of BOOKING_TABLES) {
     await addColumnIfMissing(

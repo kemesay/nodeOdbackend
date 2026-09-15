@@ -402,6 +402,73 @@ async function creditReferralRewardIfCompleted(bookingType, bookingId) {
   return rewardCode;
 }
 
+/**
+ * Everything a signed-in user would want to see on a "My Rewards" screen:
+ * how much they've actually saved so far, how much they've earned by
+ * referring others, and how many of their lifetime chances remain in each
+ * of the three caps (public codes, referral/reward codes spent, referral
+ * rewards earned as a referrer).
+ */
+async function getMyDiscountSummary(userId) {
+  const redemptions = await PromoCodeRedemption.findAll({
+    where: { redeemedByUserId: userId, status: "confirmed" },
+    include: [{ model: PromoCode, attributes: ["type"] }],
+  });
+
+  let publicUsed = 0;
+  let referralFamilyUsed = 0;
+  let totalSaved = 0;
+  for (const redemption of redemptions) {
+    totalSaved += Number(redemption.discountApplied) || 0;
+    if (redemption.PromoCode?.type === "public") {
+      publicUsed += 1;
+    } else {
+      referralFamilyUsed += 1;
+    }
+  }
+
+  const creditedRewards = await ReferralReward.findAll({
+    where: { referrerUserId: userId, rewardStatus: "credited" },
+  });
+  const totalReferralRewardsEarned = creditedRewards.reduce(
+    (sum, reward) => sum + (Number(reward.rewardAmount) || 0),
+    0
+  );
+
+  const pendingReferralRewards = await ReferralReward.count({
+    where: { referrerUserId: userId, rewardStatus: "pending" },
+  });
+
+  const round = (n) => Math.round(n * 100) / 100;
+
+  return {
+    totalSaved: round(totalSaved),
+    totalReferralRewardsEarned: round(totalReferralRewardsEarned),
+    publicCodes: {
+      used: publicUsed,
+      remaining: Math.max(MAX_LIFETIME_PUBLIC_REDEMPTIONS_PER_PERSON - publicUsed, 0),
+      limit: MAX_LIFETIME_PUBLIC_REDEMPTIONS_PER_PERSON,
+    },
+    referralCodesSpent: {
+      used: referralFamilyUsed,
+      remaining: Math.max(
+        MAX_LIFETIME_REFERRAL_REDEMPTIONS_PER_PERSON - referralFamilyUsed,
+        0
+      ),
+      limit: MAX_LIFETIME_REFERRAL_REDEMPTIONS_PER_PERSON,
+    },
+    referralRewardsEarned: {
+      used: creditedRewards.length,
+      remaining: Math.max(
+        MAX_LIFETIME_REFERRAL_REWARDS_EARNED_PER_REFERRER - creditedRewards.length,
+        0
+      ),
+      limit: MAX_LIFETIME_REFERRAL_REWARDS_EARNED_PER_REFERRER,
+    },
+    pendingReferralRewards,
+  };
+}
+
 async function createPublicPromoCode(data) {
   const existing = await PromoCode.findOne({ where: { code: data.code } });
   if (existing) throw new ValidationError("A promo code with this code already exists.");
@@ -447,6 +514,7 @@ module.exports = {
   validatePromoCode,
   redeemPromoCode,
   creditReferralRewardIfCompleted,
+  getMyDiscountSummary,
   createPublicPromoCode,
   listPromoCodes,
   getPromoCodeByCode,
