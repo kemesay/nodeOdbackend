@@ -24,11 +24,45 @@ const REFERRAL_RIDER_MAX_DISCOUNT = 15;
 const REFERRAL_REFERRER_REWARD_AMOUNT = 10;
 const REFERRAL_REWARD_CODE_VALID_DAYS = 90;
 
-// Lifetime cap, across every promo code combined (not per-code) — once a
-// user has redeemed 5 promo codes total, no further code (public, referral,
-// or reward) discounts their fare. Guests (no userId) can't be tracked
-// across bookings, so this only applies to signed-in users.
-const MAX_LIFETIME_PROMO_REDEMPTIONS_PER_USER = 5;
+// Lifetime caps — tracked as two independent buckets rather than one shared
+// pool, so earning referral rewards never crowds out a customer's ability to
+// also use public marketing codes (and vice versa): up to 5 public-code
+// redemptions AND up to 5 referral/reward-code redemptions per person,
+// forever (10 discounted bookings total in the best case). Reward codes
+// additionally expire REFERRAL_REWARD_CODE_VALID_DAYS after being minted
+// (see creditReferralRewardIfCompleted) — that's the "expires in 90 days"
+// half of the referral side; this cap is the "5 total" half.
+const MAX_LIFETIME_PUBLIC_REDEMPTIONS_PER_PERSON = 5;
+const MAX_LIFETIME_REFERRAL_REDEMPTIONS_PER_PERSON = 5;
+const REFERRAL_FAMILY_TYPES = ["referral", "reward"];
+
+function normalizeEmail(email) {
+  const trimmed = String(email || "").trim().toLowerCase();
+  return trimmed || null;
+}
+
+function normalizePhone(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  return digits || null;
+}
+
+/**
+ * A signed-in user is identified by userId. A guest has none, so — for every
+ * rate-limit check below — we fall back to whatever contact info they gave
+ * at booking time (email OR phone matches an earlier confirmed redemption).
+ * Returns null when there's truly nothing to key on (never happens for a
+ * real booking, since email is always required, but guards it anyway).
+ */
+function identityWhereClause({ userId, guestEmail, guestPhone }) {
+  if (userId) return { redeemedByUserId: userId };
+
+  const email = normalizeEmail(guestEmail);
+  const phone = normalizePhone(guestPhone);
+  const or = [];
+  if (email) or.push({ guestEmail: email });
+  if (phone) or.push({ guestPhone: phone });
+  return or.length > 0 ? { [Op.or]: or } : null;
+}
 
 const BOOKING_MODELS = {
   "Point to point": PointToPointBook,
@@ -95,12 +129,32 @@ async function getOrCreateReferralCode(user) {
   throw new Error(`Could not allocate a unique referral code for user ${user.userId}`);
 }
 
-/** True if this user has no other booking anywhere in the system (referral/first-ride gating). */
-async function hasAnyOtherBooking(userId, excludeBookingType, excludeBookingId) {
-  if (!userId) return false; // guest bookings can't be identity-checked; let firstRideOnly pass through
+/**
+ * True if this person has any other booking anywhere in the system
+ * (referral/first-ride gating). Signed-in users are matched by userId;
+ * guests are matched by whichever of email/phone they gave, since that's
+ * the only identity a guest has.
+ */
+async function hasAnyOtherBooking(
+  { userId, guestEmail, guestPhone },
+  excludeBookingType,
+  excludeBookingId
+) {
+  const email = normalizeEmail(guestEmail);
+  const phone = normalizePhone(guestPhone);
+  if (!userId && !email && !phone) return false;
+
   for (const [bookingType, Model] of Object.entries(BOOKING_MODELS)) {
     const pk = BOOKING_PK[bookingType];
-    const where = { userId };
+    let where;
+    if (userId) {
+      where = { userId };
+    } else {
+      const or = [];
+      if (email) or.push({ passengerEmail: email });
+      if (phone) or.push({ passengerCellPhone: phone });
+      where = { [Op.or]: or };
+    }
     if (bookingType === excludeBookingType) {
       where[pk] = { [Op.ne]: excludeBookingId };
     }
@@ -123,10 +177,18 @@ function computeDiscount(promoCode, fareAmount) {
 
 /**
  * Validates a code for one booking without redeeming it.
- * @param {{ code: string, userId: number|null, bookingType: string, fareAmount: number, bookingId: number }} params
+ * @param {{ code: string, userId: number|null, guestEmail?: string, guestPhone?: string, bookingType: string, fareAmount: number, bookingId: number }} params
  * @returns {Promise<{ promoCode: PromoCode, discount: number }>}
  */
-async function validatePromoCode({ code, userId, bookingType, fareAmount, bookingId }) {
+async function validatePromoCode({
+  code,
+  userId,
+  guestEmail,
+  guestPhone,
+  bookingType,
+  fareAmount,
+  bookingId,
+}) {
   const normalizedCode = String(code || "").trim().toUpperCase();
   const promoCode = await PromoCode.findOne({ where: { code: normalizedCode } });
 
@@ -155,21 +217,25 @@ async function validatePromoCode({ code, userId, bookingType, fareAmount, bookin
   }
 
   if (promoCode.firstRideOnly) {
-    const hasHistory = await hasAnyOtherBooking(userId, bookingType, bookingId);
+    const hasHistory = await hasAnyOtherBooking(
+      { userId, guestEmail, guestPhone },
+      bookingType,
+      bookingId
+    );
     if (hasHistory) {
       throw new ValidationError("This promo code is only valid on your first ride.");
     }
   }
 
-  // Per-user redemption cap only applies to signed-in users — guest
-  // bookings have no userId to key on, and passing `undefined` straight
-  // into a Sequelize WHERE clause throws rather than matching nothing.
-  if (userId) {
+  // Per-person redemption cap for THIS code — signed-in users are matched by
+  // userId, guests by whatever contact info they gave at booking time.
+  const identity = identityWhereClause({ userId, guestEmail, guestPhone });
+  if (identity) {
     const priorUses = await PromoCodeRedemption.count({
       where: {
         promoCodeId: promoCode.promoCodeId,
-        redeemedByUserId: userId,
         status: "confirmed",
+        ...identity,
       },
     });
     if (priorUses >= promoCode.maxRedemptionsPerUser) {
@@ -186,13 +252,30 @@ async function validatePromoCode({ code, userId, bookingType, fareAmount, bookin
     }
   }
 
-  if (userId) {
+  // Lifetime cap — two independent 5-use buckets per person: one for public
+  // codes, one for referral/reward codes combined (see the constants above).
+  if (identity) {
+    const isReferralFamily = REFERRAL_FAMILY_TYPES.includes(promoCode.type);
+    const lifetimeCap = isReferralFamily
+      ? MAX_LIFETIME_REFERRAL_REDEMPTIONS_PER_PERSON
+      : MAX_LIFETIME_PUBLIC_REDEMPTIONS_PER_PERSON;
+
     const lifetimeUses = await PromoCodeRedemption.count({
-      where: { redeemedByUserId: userId, status: "confirmed" },
+      where: { status: "confirmed", ...identity },
+      include: [
+        {
+          model: PromoCode,
+          where: {
+            type: isReferralFamily ? REFERRAL_FAMILY_TYPES : "public",
+          },
+        },
+      ],
     });
-    if (lifetimeUses >= MAX_LIFETIME_PROMO_REDEMPTIONS_PER_USER) {
+    if (lifetimeUses >= lifetimeCap) {
       throw new ValidationError(
-        `You've reached the maximum of ${MAX_LIFETIME_PROMO_REDEMPTIONS_PER_USER} promo code uses.`
+        isReferralFamily
+          ? `You've reached the maximum of ${lifetimeCap} referral/reward promo uses.`
+          : `You've reached the maximum of ${lifetimeCap} promo code uses.`
       );
     }
   }
@@ -211,10 +294,20 @@ async function validatePromoCode({ code, userId, bookingType, fareAmount, bookin
  * later, once the referred rider's trip is actually completed
  * (see `creditReferralRewardIfCompleted`).
  */
-async function redeemPromoCode({ promoCode, userId, bookingId, bookingType, discountApplied }) {
+async function redeemPromoCode({
+  promoCode,
+  userId,
+  guestEmail,
+  guestPhone,
+  bookingId,
+  bookingType,
+  discountApplied,
+}) {
   const redemption = await PromoCodeRedemption.create({
     promoCodeId: promoCode.promoCodeId,
     redeemedByUserId: userId || null,
+    guestEmail: userId ? null : normalizeEmail(guestEmail),
+    guestPhone: userId ? null : normalizePhone(guestPhone),
     bookingId,
     bookingType,
     discountApplied,
@@ -315,7 +408,8 @@ async function setPromoCodeActive(code, isActive) {
 
 module.exports = {
   BOOKING_MODELS,
-  MAX_LIFETIME_PROMO_REDEMPTIONS_PER_USER,
+  MAX_LIFETIME_PUBLIC_REDEMPTIONS_PER_PERSON,
+  MAX_LIFETIME_REFERRAL_REDEMPTIONS_PER_PERSON,
   generateReferralCode,
   getOrCreateReferralCode,
   validatePromoCode,

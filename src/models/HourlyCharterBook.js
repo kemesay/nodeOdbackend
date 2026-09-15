@@ -534,7 +534,20 @@ const HourlyCharterBook = sequelize.define(
         },
       },
     },
+    // Admin manual discount only (see applyDiscountToHourlyCharterBook). Kept
+    // separate from promoDiscountAmountInDollars so one can never silently
+    // overwrite the other — the two are always additive against a freshly
+    // recomputed base fare.
     discountAmountInDollars: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0.00,
+      validate: {
+        min: 0,
+      },
+    },
+    // Promo-code discount only, frozen at booking-creation time.
+    promoDiscountAmountInDollars: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: true,
       defaultValue: 0.00,

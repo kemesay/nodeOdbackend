@@ -328,6 +328,9 @@ async function sendBookingApprovalEmailService(
     if (typeof booking.discountAmountInDollars !== 'undefined' && booking.discountAmountInDollars > 0) {
       emailData.discountAmountInDollars = booking.discountAmountInDollars;
     }
+    if (typeof booking.promoDiscountAmountInDollars !== 'undefined' && booking.promoDiscountAmountInDollars > 0) {
+      emailData.promoDiscountAmountInDollars = booking.promoDiscountAmountInDollars;
+    }
   } else {
     emailData.name = booking.passengerFullName;
     emailData.bookingType = bookingTypeFullName;

@@ -433,6 +433,8 @@ async function createPointToPointBook(pointToPointBookData) {
       const result = await validatePromoCode({
         code: promoCode,
         userId,
+        guestEmail: userId ? undefined : pointToPointBook.passengerEmail,
+        guestPhone: userId ? undefined : pointToPointBook.passengerCellPhone,
         bookingType: "Point to point",
         fareAmount: totalTripFee,
         bookingId: pointToPointBook.pointToPointBookId,
@@ -444,7 +446,7 @@ async function createPointToPointBook(pointToPointBookData) {
 
     pointToPointBook.totalTripFeeInDollars = chargeAmount;
     if (appliedPromoCode) {
-      pointToPointBook.discountAmountInDollars = discountAmount;
+      pointToPointBook.promoDiscountAmountInDollars = discountAmount;
       pointToPointBook.hasDiscountApplied = true;
     }
     pointToPointBook = await pointToPointBook.save();
@@ -473,6 +475,8 @@ async function createPointToPointBook(pointToPointBookData) {
       await redeemPromoCode({
         promoCode: appliedPromoCode,
         userId,
+        guestEmail: userId ? undefined : pointToPointBook.passengerEmail,
+        guestPhone: userId ? undefined : pointToPointBook.passengerCellPhone,
         bookingId: pointToPointBook.pointToPointBookId,
         bookingType: "Point to point",
         discountApplied: discountAmount,
@@ -663,11 +667,24 @@ async function applyDiscountToPointToPointBook(pointToPointBookId, discountAmoun
     throw new ValidationError("Discount amount cannot be negative.");
   }
 
-  if (discountAmount > pointToPointBook.totalTripFeeInDollars) {
-    throw new ValidationError("Discount amount cannot exceed total trip fee.");
+  // Always recompute the true, undiscounted fare fresh rather than trusting
+  // the currently-stored totalTripFeeInDollars — that column may already
+  // reflect a promo-code discount, an earlier manual discount, or both.
+  // Recomputing from scratch each time makes this idempotent (calling it
+  // twice with the same amount is a no-op) and keeps the manual discount
+  // strictly additive on top of any promo discount instead of one silently
+  // overwriting the other's effect on the total.
+  const baseFare = await calculateP2PTotalTripPrice(pointToPointBook);
+  const promoDiscount = Number(pointToPointBook.promoDiscountAmountInDollars) || 0;
+  const remainingAfterPromo = Math.max(baseFare - promoDiscount, 0);
+
+  if (discountAmount > remainingAfterPromo) {
+    throw new ValidationError(
+      "Discount amount cannot exceed the fare remaining after any promo discount."
+    );
   }
 
-  pointToPointBook.totalTripFeeInDollars -= discountAmount;
+  pointToPointBook.totalTripFeeInDollars = remainingAfterPromo - discountAmount;
   pointToPointBook.discountAmountInDollars = discountAmount;
   pointToPointBook.hasDiscountApplied = true;
   // pointToPointBook.paymentStatus = 'DISCOUNT_APPLIED';

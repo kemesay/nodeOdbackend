@@ -539,6 +539,8 @@ async function createAirportBook(airportBookData) {
       const result = await validatePromoCode({
         code: promoCode,
         userId,
+        guestEmail: userId ? undefined : airportBook.passengerEmail,
+        guestPhone: userId ? undefined : airportBook.passengerCellPhone,
         bookingType: "Airport Service",
         fareAmount: totalTripFee,
         bookingId: airportBook.airportBookId,
@@ -550,7 +552,7 @@ async function createAirportBook(airportBookData) {
 
     airportBook.totalTripFeeInDollars = chargeAmount;
     if (appliedPromoCode) {
-      airportBook.discountAmountInDollars = discountAmount;
+      airportBook.promoDiscountAmountInDollars = discountAmount;
       airportBook.hasDiscountApplied = true;
     }
     await airportBook.save();
@@ -579,6 +581,8 @@ async function createAirportBook(airportBookData) {
       await redeemPromoCode({
         promoCode: appliedPromoCode,
         userId,
+        guestEmail: userId ? undefined : airportBook.passengerEmail,
+        guestPhone: userId ? undefined : airportBook.passengerCellPhone,
         bookingId: airportBook.airportBookId,
         bookingType: "Airport Service",
         discountApplied: discountAmount,
@@ -781,11 +785,20 @@ async function applyDiscountToAirportBook(airportBookId, discountAmount) {
     throw new ValidationError("Discount amount cannot be negative.");
   }
 
-  if (discountAmount > airportBook.totalTripFeeInDollars) {
-    throw new ValidationError("Discount amount cannot exceed total trip fee.");
+  // Recompute the true, undiscounted fare fresh each time — see the P2P
+  // equivalent of this function for why (idempotency + additive with any
+  // promo-code discount instead of overwriting it).
+  const baseFare = await calculateAirportBookingTotalTripPrice(airportBook);
+  const promoDiscount = Number(airportBook.promoDiscountAmountInDollars) || 0;
+  const remainingAfterPromo = Math.max(baseFare - promoDiscount, 0);
+
+  if (discountAmount > remainingAfterPromo) {
+    throw new ValidationError(
+      "Discount amount cannot exceed the fare remaining after any promo discount."
+    );
   }
 
-  airportBook.totalTripFeeInDollars -= discountAmount;
+  airportBook.totalTripFeeInDollars = remainingAfterPromo - discountAmount;
   airportBook.discountAmountInDollars = discountAmount;
   airportBook.hasDiscountApplied = true;
   // airportBook.paymentStatus = 'DISCOUNT_APPLIED';

@@ -119,6 +119,17 @@ const PromoCodeRedemption = sequelize.define(
       type: DataTypes.BIGINT,
       allowNull: true,
     },
+    // Guest identity proxy — a guest has no userId to rate-limit against, so
+    // per-user caps fall back to matching on whatever contact info they gave
+    // at booking time. Nullable: only populated when redeemedByUserId isn't.
+    guestEmail: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+    },
+    guestPhone: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+    },
     bookingId: {
       type: DataTypes.BIGINT,
       allowNull: false,

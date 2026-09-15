@@ -48,6 +48,14 @@ function gratuityEmailLabel(booking, gratuityAmount) {
 }
 
 function applyDiscountToFareDetails(fareDetails, booking) {
+  // Promo-code and admin-manual discounts are tracked in separate columns
+  // (see PromoCode.js / the applyDiscountToXBook functions) precisely so
+  // one can never silently overwrite the other — shown as separate line
+  // items here for the same reason, rather than summing them into one
+  // "Discount" figure that would hide which discount actually applied.
+  if (asMoney(booking.promoDiscountAmountInDollars) > 0) {
+    fareDetails["Promo Discount"] = `-${formatUsd(booking.promoDiscountAmountInDollars)}`;
+  }
   if (booking.hasDiscountApplied && asMoney(booking.discountAmountInDollars) > 0) {
     fareDetails.Discount = `-${formatUsd(booking.discountAmountInDollars)}`;
   }

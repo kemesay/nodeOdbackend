@@ -431,6 +431,8 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       const result = await validatePromoCode({
         code: promoCode,
         userId,
+        guestEmail: userId ? undefined : hourlyCharterBook.passengerEmail,
+        guestPhone: userId ? undefined : hourlyCharterBook.passengerCellPhone,
         bookingType: "Hourly Charter",
         fareAmount: totalTripFee,
         bookingId: hourlyCharterBook.hourlyCharterBookId,
@@ -442,7 +444,7 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
 
     hourlyCharterBook.totalTripFeeInDollars = discountedTripFee;
     if (appliedPromoCode) {
-      hourlyCharterBook.discountAmountInDollars = discountAmount;
+      hourlyCharterBook.promoDiscountAmountInDollars = discountAmount;
       hourlyCharterBook.hasDiscountApplied = true;
     }
     await hourlyCharterBook.save();
@@ -483,6 +485,8 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       await redeemPromoCode({
         promoCode: appliedPromoCode,
         userId,
+        guestEmail: userId ? undefined : hourlyCharterBook.passengerEmail,
+        guestPhone: userId ? undefined : hourlyCharterBook.passengerCellPhone,
         bookingId: hourlyCharterBook.hourlyCharterBookId,
         bookingType: "Hourly Charter",
         discountApplied: discountAmount,
@@ -678,11 +682,20 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
         throw new ValidationError("Discount amount cannot be negative.");
       }
 
-      if (discountAmount > hourlyCharterBook.totalTripFeeInDollars) {
-        throw new ValidationError("Discount amount cannot exceed total trip fee.");
+      // Recompute the true, undiscounted fare fresh each time — see the P2P
+      // equivalent of this function for why (idempotency + additive with any
+      // promo-code discount instead of overwriting it).
+      const baseFare = await calculateHourlyCharterTotalTripPrice(hourlyCharterBook);
+      const promoDiscount = Number(hourlyCharterBook.promoDiscountAmountInDollars) || 0;
+      const remainingAfterPromo = Math.max(baseFare - promoDiscount, 0);
+
+      if (discountAmount > remainingAfterPromo) {
+        throw new ValidationError(
+          "Discount amount cannot exceed the fare remaining after any promo discount."
+        );
       }
 
-      hourlyCharterBook.totalTripFeeInDollars -= discountAmount;
+      hourlyCharterBook.totalTripFeeInDollars = remainingAfterPromo - discountAmount;
       hourlyCharterBook.discountAmountInDollars = discountAmount;
       hourlyCharterBook.hasDiscountApplied = true;
       // hourlyCharterBook.paymentStatus = 'DISCOUNT_APPLIED';
