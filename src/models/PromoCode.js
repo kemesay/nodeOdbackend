@@ -170,9 +170,20 @@ const ReferralReward = sequelize.define(
       type: DataTypes.BIGINT,
       allowNull: false,
     },
+    // Nullable — a referred friend who books as a guest (never registers)
+    // still earns the referrer a reward; referredGuestEmail/Phone identify
+    // them instead in that case.
     referredUserId: {
       type: DataTypes.BIGINT,
-      allowNull: false,
+      allowNull: true,
+    },
+    referredGuestEmail: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+    },
+    referredGuestPhone: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
     },
     promoCodeId: {
       // The referral code that was redeemed to create this reward.

@@ -15,6 +15,7 @@
     "db:side-pick-detours-table": "node scripts/ensure-side-pick-detours-table.js",
     "db:promo-code-tables": "node scripts/ensure-promo-code-tables.js",
     "db:promo-discount-columns": "node scripts/ensure-promo-discount-columns.js",
+    "db:referral-reward-guest-columns": "node scripts/ensure-referral-reward-guest-columns.js",
     "db:backfill-referral-codes": "node scripts/backfill-referral-codes.js"
   },
   "keywords": [],

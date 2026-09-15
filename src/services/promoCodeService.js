@@ -36,6 +36,13 @@ const MAX_LIFETIME_PUBLIC_REDEMPTIONS_PER_PERSON = 5;
 const MAX_LIFETIME_REFERRAL_REDEMPTIONS_PER_PERSON = 5;
 const REFERRAL_FAMILY_TYPES = ["referral", "reward"];
 
+// A separate cap from the two above — this one limits how many times a
+// referrer can EARN a reward (i.e. how many different friends they refer
+// successfully), not how many codes they personally spend. Their 6th
+// referred friend still gets their own discount as normal; the referrer
+// just stops accumulating further rewards past their 5th.
+const MAX_LIFETIME_REFERRAL_REWARDS_EARNED_PER_REFERRER = 5;
+
 function normalizeEmail(email) {
   const trimmed = String(email || "").trim().toLowerCase();
   return trimmed || null;
@@ -314,10 +321,19 @@ async function redeemPromoCode({
     status: "confirmed",
   });
 
-  if (promoCode.type === "referral" && promoCode.ownerUserId && userId) {
+  // A referred friend earns their referrer a reward whether they registered
+  // or booked as a guest — the reward is keyed on whichever identity they
+  // actually have. Opened as "pending" regardless of the referrer's
+  // MAX_LIFETIME_REFERRAL_REWARDS_EARNED cap — that cap is only checked at
+  // crediting time (see creditReferralRewardIfCompleted), since a pending
+  // referral that never completes shouldn't permanently burn one of the
+  // referrer's 5 lifetime slots.
+  if (promoCode.type === "referral" && promoCode.ownerUserId) {
     await ReferralReward.create({
       referrerUserId: promoCode.ownerUserId,
-      referredUserId: userId,
+      referredUserId: userId || null,
+      referredGuestEmail: userId ? null : normalizeEmail(guestEmail),
+      referredGuestPhone: userId ? null : normalizePhone(guestPhone),
       promoCodeId: promoCode.promoCodeId,
       triggeringBookingId: bookingId,
       triggeringBookingType: bookingType,
@@ -344,6 +360,21 @@ async function creditReferralRewardIfCompleted(bookingType, bookingId) {
   if (!referrer) {
     reward.rewardStatus = "denied";
     await reward.save();
+    return null;
+  }
+
+  // Cap applies here, at the moment a referral actually converts — not when
+  // it was first opened as pending — so referrals that never complete never
+  // cost the referrer one of their 5 lifetime slots.
+  const alreadyCredited = await ReferralReward.count({
+    where: { referrerUserId: referrer.userId, rewardStatus: "credited" },
+  });
+  if (alreadyCredited >= MAX_LIFETIME_REFERRAL_REWARDS_EARNED_PER_REFERRER) {
+    reward.rewardStatus = "denied";
+    await reward.save();
+    logger.info(
+      `Referral reward NOT credited: referrer ${referrer.userId} already has ${alreadyCredited} credited referral rewards (cap: ${MAX_LIFETIME_REFERRAL_REWARDS_EARNED_PER_REFERRER}).`
+    );
     return null;
   }
 
@@ -410,6 +441,7 @@ module.exports = {
   BOOKING_MODELS,
   MAX_LIFETIME_PUBLIC_REDEMPTIONS_PER_PERSON,
   MAX_LIFETIME_REFERRAL_REDEMPTIONS_PER_PERSON,
+  MAX_LIFETIME_REFERRAL_REWARDS_EARNED_PER_REFERRER,
   generateReferralCode,
   getOrCreateReferralCode,
   validatePromoCode,
