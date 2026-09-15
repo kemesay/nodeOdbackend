@@ -249,6 +249,28 @@ async function validatePromoCode({
     if (priorUses >= promoCode.maxRedemptionsPerUser) {
       throw new ValidationError("You've already used this promo code.");
     }
+
+    // Rolling-window cap, on top of the lifetime cap above — e.g. 5 uses
+    // per person in any trailing 15-day window. Recovers on its own as the
+    // oldest use in the window ages out; no reset date is ever stored.
+    if (promoCode.periodDays && promoCode.maxRedemptionsPerPeriod) {
+      const windowStart = new Date(
+        Date.now() - promoCode.periodDays * 24 * 60 * 60 * 1000
+      );
+      const usesInPeriod = await PromoCodeRedemption.count({
+        where: {
+          promoCodeId: promoCode.promoCodeId,
+          status: "confirmed",
+          createdAt: { [Op.gte]: windowStart },
+          ...identity,
+        },
+      });
+      if (usesInPeriod >= promoCode.maxRedemptionsPerPeriod) {
+        throw new ValidationError(
+          `You've used this code ${promoCode.maxRedemptionsPerPeriod} times in the last ${promoCode.periodDays} days. Try again once your next chance opens up.`
+        );
+      }
+    }
   }
 
   if (promoCode.maxTotalRedemptions) {

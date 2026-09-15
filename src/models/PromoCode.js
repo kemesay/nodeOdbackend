@@ -76,6 +76,19 @@ const PromoCode = sequelize.define(
       allowNull: false,
       defaultValue: 1,
     },
+    // Rolling-window cap, on top of (not instead of) maxRedemptionsPerUser —
+    // e.g. periodDays=15, maxRedemptionsPerPeriod=5 means "5 uses per person
+    // in any trailing 15-day window". Both must be set for this to apply;
+    // either alone is ignored. Recovers automatically as old redemptions
+    // age out of the window — no reset date is ever stored.
+    periodDays: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    maxRedemptionsPerPeriod: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
     campaignSource: {
       // e.g. "instagram_aug26" — public/social codes only, for channel attribution.
       type: DataTypes.STRING(50),
@@ -270,11 +283,17 @@ const validateCreatePromoCode = Joi.object({
   firstRideOnly: Joi.boolean().default(false),
   maxTotalRedemptions: Joi.number().integer().min(1).allow(null),
   maxRedemptionsPerUser: Joi.number().integer().min(1).default(1),
+  // Rolling-window cap — e.g. periodDays: 15, maxRedemptionsPerPeriod: 5
+  // means "5 uses per person in any trailing 15-day window", recovering
+  // automatically as old redemptions age out. Optional, but must be given
+  // together — one without the other doesn't mean anything.
+  periodDays: Joi.number().integer().min(1).allow(null),
+  maxRedemptionsPerPeriod: Joi.number().integer().min(1).allow(null),
   campaignSource: Joi.string().max(50).allow("", null),
   isActive: Joi.boolean().default(true),
   startsAt: Joi.date().allow(null),
   expiresAt: Joi.date().allow(null),
-});
+}).and("periodDays", "maxRedemptionsPerPeriod");
 
 /** Applying a code inline as part of a booking payload (booking services pick this out). */
 const validateApplyPromoCode = Joi.object({
