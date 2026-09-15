@@ -36,12 +36,11 @@ const MAX_LIFETIME_PUBLIC_REDEMPTIONS_PER_PERSON = 5;
 const MAX_LIFETIME_REFERRAL_REDEMPTIONS_PER_PERSON = 5;
 const REFERRAL_FAMILY_TYPES = ["referral", "reward"];
 
-// A separate cap from the two above — this one limits how many times a
-// referrer can EARN a reward (i.e. how many different friends they refer
-// successfully), not how many codes they personally spend. Their 6th
-// referred friend still gets their own discount as normal; the referrer
-// just stops accumulating further rewards past their 5th.
-const MAX_LIFETIME_REFERRAL_REWARDS_EARNED_PER_REFERRER = 5;
+// Earning a reward by referring people is deliberately uncapped — a
+// referrer is rewarded for every single friend who completes and pays for
+// a ride, whether that's their 1st or their 100,000th. This is distinct
+// from the two caps above, which limit how many codes a person can
+// personally *spend* on their own bookings.
 
 function normalizeEmail(email) {
   const trimmed = String(email || "").trim().toLowerCase();
@@ -363,21 +362,11 @@ async function creditReferralRewardIfCompleted(bookingType, bookingId) {
     return null;
   }
 
-  // Cap applies here, at the moment a referral actually converts — not when
-  // it was first opened as pending — so referrals that never complete never
-  // cost the referrer one of their 5 lifetime slots.
-  const alreadyCredited = await ReferralReward.count({
-    where: { referrerUserId: referrer.userId, rewardStatus: "credited" },
-  });
-  if (alreadyCredited >= MAX_LIFETIME_REFERRAL_REWARDS_EARNED_PER_REFERRER) {
-    reward.rewardStatus = "denied";
-    await reward.save();
-    logger.info(
-      `Referral reward NOT credited: referrer ${referrer.userId} already has ${alreadyCredited} credited referral rewards (cap: ${MAX_LIFETIME_REFERRAL_REWARDS_EARNED_PER_REFERRER}).`
-    );
-    return null;
-  }
-
+  // No cap on earning — a referrer is rewarded for every single friend who
+  // genuinely completes and pays for a ride, whether that's their 1st or
+  // their 100,000th. (The unrelated caps on how many codes a person can
+  // personally *spend* — MAX_LIFETIME_PUBLIC_REDEMPTIONS_PER_PERSON and
+  // MAX_LIFETIME_REFERRAL_REDEMPTIONS_PER_PERSON — are untouched by this.)
   const firstName = String(referrer.fullName || "").trim().split(/\s+/)[0] || "USER";
   const rewardCode = await PromoCode.create({
     code: `${generateReferralCode(firstName, referrer.userId)}R${reward.referralRewardId}`.slice(0, 20),
@@ -457,13 +446,12 @@ async function getMyDiscountSummary(userId) {
       ),
       limit: MAX_LIFETIME_REFERRAL_REDEMPTIONS_PER_PERSON,
     },
+    // Uncapped — null limit/remaining signals "unlimited" to clients,
+    // instead of a fixed cap like the two buckets above.
     referralRewardsEarned: {
       used: creditedRewards.length,
-      remaining: Math.max(
-        MAX_LIFETIME_REFERRAL_REWARDS_EARNED_PER_REFERRER - creditedRewards.length,
-        0
-      ),
-      limit: MAX_LIFETIME_REFERRAL_REWARDS_EARNED_PER_REFERRER,
+      remaining: null,
+      limit: null,
     },
     pendingReferralRewards,
   };
@@ -508,7 +496,6 @@ module.exports = {
   BOOKING_MODELS,
   MAX_LIFETIME_PUBLIC_REDEMPTIONS_PER_PERSON,
   MAX_LIFETIME_REFERRAL_REDEMPTIONS_PER_PERSON,
-  MAX_LIFETIME_REFERRAL_REWARDS_EARNED_PER_REFERRER,
   generateReferralCode,
   getOrCreateReferralCode,
   validatePromoCode,
