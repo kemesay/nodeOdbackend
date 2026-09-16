@@ -179,6 +179,22 @@ const {
 } = require("../../errors/CustomErrors.js");
 
 const { addUserPaymentDetail } = require("../paymentDetailService.js");
+const { getOrCreateReferralCode } = require("../promoCodeService.js");
+const logger = require("../../config/logging.js");
+
+// Every new customer gets their own personal referral code the moment their
+// account exists — whether they signed up directly or via someone else's
+// referral link — instead of waiting for them to first open an "invite
+// friends" screen. getOrCreateReferralCode is idempotent (find-or-create),
+// so this is also safe to call again below when a soft-deleted account is
+// restored. Best-effort: a failure here must never block account creation.
+async function ensureReferralCode(user) {
+  try {
+    await getOrCreateReferralCode(user);
+  } catch (error) {
+    logger.error(`Failed to create referral code for user ${user.userId}: ${error.message}`);
+  }
+}
 
 async function createUser(data) {
   const { creditCardNumber, expirationDate, securityCode, ...userData } = data;
@@ -232,6 +248,7 @@ async function createUser(data) {
       const updatedUserData = { ...userData, password: hashedPassword };
       await softDeletedByEmail.update(updatedUserData, { transaction });
       await transaction.commit();
+      await ensureReferralCode(softDeletedByEmail);
       return userResponse(softDeletedByEmail);
     }
 
@@ -251,6 +268,7 @@ async function createUser(data) {
       const updatedUserData = { ...userData, password: hashedPassword };
       await softDeletedByEmail.update(updatedUserData, { transaction });
       await transaction.commit();
+      await ensureReferralCode(softDeletedByEmail);
       return userResponse(softDeletedByEmail);
     }
 
@@ -270,6 +288,7 @@ async function createUser(data) {
       const updatedUserData = { ...userData, password: hashedPassword };
       await softDeletedByPhone.update(updatedUserData, { transaction });
       await transaction.commit();
+      await ensureReferralCode(softDeletedByPhone);
       return userResponse(softDeletedByPhone);
     }
 
@@ -278,6 +297,8 @@ async function createUser(data) {
 
     // Commit the transaction
     await transaction.commit();
+
+    await ensureReferralCode(newUser);
 
     return userResponse(newUser);
   } catch (error) {
