@@ -23,6 +23,7 @@ const gratuityRoutes = require("../routes/gratuityRoutes.js");
 const bookingQuoteRoutes = require("../routes/bookingQuoteRoutes.js");
 const emailRoutes = require("../routes/emailRoutes.js");
 const promoCodeRoutes = require("../routes/promoCodeRoutes.js");
+const sideDetourSettingsRoutes = require("../routes/sideDetourSettingsRoutes.js");
 
 module.exports = function setupRoutes(app) {
   app.use(
@@ -53,5 +54,6 @@ module.exports = function setupRoutes(app) {
   app.use("/api/v1/social-medias", socialMediaRoutes);
   app.use("/api/v1/email", emailRoutes);
   app.use("/api/v1/promo-codes", promoCodeRoutes);
+  app.use("/api/v1/side-detour-settings", sideDetourSettingsRoutes);
   app.use(errorHandler);
 };

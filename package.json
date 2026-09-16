@@ -18,6 +18,7 @@
     "db:referral-reward-guest-columns": "node scripts/ensure-referral-reward-guest-columns.js",
     "db:promo-period-columns": "node scripts/ensure-promo-period-columns.js",
     "db:referral-settings-table": "node scripts/ensure-referral-settings-table.js",
+    "db:side-detour-settings-table": "node scripts/ensure-side-detour-settings-table.js",
     "db:backfill-referral-codes": "node scripts/backfill-referral-codes.js"
   },
   "keywords": [],

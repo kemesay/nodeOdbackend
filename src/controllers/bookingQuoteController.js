@@ -1,6 +1,7 @@
 const { getCarById } = require("../services/booking/carService.js");
 const { getGratuityById } = require("../services/booking/gratuityService.js");
 const { quoteFare } = require("../utils/bookingFareCalculator.js");
+const { getSideDetourSettings } = require("../services/sideDetourSettingsService.js");
 const { ValidationError } = require("../errors/CustomErrors.js");
 
 async function quoteBookingFareController(req, res, next) {
@@ -16,6 +17,7 @@ async function quoteBookingFareController(req, res, next) {
       additionalStopPrice,
       airportPickupPreferencePrice,
       extraOptionsPerLeg,
+      sideDetourCount,
     } = req.body || {};
 
     if (!carId) {
@@ -30,6 +32,17 @@ async function quoteBookingFareController(req, res, next) {
     }
     if (!Number.isFinite(pct)) pct = 0;
 
+    // A preview has no bookingId yet to count SidePickDetour rows against —
+    // the caller (the booking form) reports how many detour stops are
+    // currently in the form instead.
+    let sideDetourFee = 0;
+    if (Number(sideDetourCount) > 0) {
+      const sideDetourSettings = await getSideDetourSettings();
+      if (sideDetourSettings.isActive) {
+        sideDetourFee = Number(sideDetourSettings.startFee);
+      }
+    }
+
     const result = quoteFare({
       bookingKind,
       car: car.toJSON ? car.toJSON() : car,
@@ -40,6 +53,7 @@ async function quoteBookingFareController(req, res, next) {
       additionalStopPrice,
       airportPickupPreferencePrice,
       extraOptionsPerLeg,
+      sideDetourFee,
     });
 
     return res.json({

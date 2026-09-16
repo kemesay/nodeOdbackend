@@ -61,6 +61,30 @@ function gratuityOnCarFare(legCarFare, percentage, tripType) {
   return roundMoney(isRoundTripTripType(tripType) ? perLeg * 2 : perLeg);
 }
 
+/**
+ * Optional flat fee for a booking that has at least one side-pick detour
+ * stop — added once regardless of trip type (never doubled for round trip),
+ * same as additionalStopPrice. Off by default; an admin turns it on and sets
+ * the amount from Side Detour Settings (see sideDetourSettingsService.js).
+ *
+ * `sideDetourCount`/`sideDetourSettings` are meant to be passed explicitly by
+ * the caller (the only way to guarantee correctness for the actual charge —
+ * see calculateP2PTotalTripPrice/calculateAirportBookingTotalTripPrice in
+ * utilTripService.js). When omitted, falls back to booking.SidePickDetours
+ * if that association happens to already be loaded (best-effort, used by
+ * secondary/display call sites like the confirmation email).
+ */
+function sideDetourFeeFor(booking, { sideDetourCount, sideDetourSettings } = {}) {
+  if (!sideDetourSettings?.isActive) return 0;
+  const count =
+    sideDetourCount != null
+      ? sideDetourCount
+      : Array.isArray(booking.SidePickDetours)
+        ? booking.SidePickDetours.length
+        : 0;
+  return count > 0 ? roundMoney(sideDetourSettings.startFee) : 0;
+}
+
 function sumExtraOptionsPrice(extraOptions, throughKey, { roundTrip }) {
   if (!extraOptions) return 0;
 
@@ -120,7 +144,7 @@ function carHasFareRates(car) {
 /**
  * @returns {{ total: number, breakdown: object }}
  */
-function calculatePointToPointFare(booking) {
+function calculatePointToPointFare(booking, opts) {
   assertCarForFare(booking.Car);
   const roundTrip = booking.tripType === "Round-Trip";
   const legCar = legCarFareFromCar(booking.Car, {
@@ -133,13 +157,17 @@ function calculatePointToPointFare(booking) {
     ? asMoney(booking.AdditionalStopOnTheWay.additionalStopPrice)
     : 0;
 
+  const sideDetourFee = sideDetourFeeFor(booking, opts);
+
   const extraOptionsPrice = sumExtraOptionsPrice(
     booking.ExtraOptions,
     "PointToPointBookExtraOption",
     { roundTrip }
   );
 
-  const subtotal = roundMoney(carFare + additionalStopPrice + extraOptionsPrice);
+  const subtotal = roundMoney(
+    carFare + additionalStopPrice + sideDetourFee + extraOptionsPrice
+  );
   const gratuityPct = asMoney(booking.Gratuity?.percentage);
   const gratuity = gratuityOnCarFare(legCar, gratuityPct, booking.tripType);
   const total = roundMoney(subtotal + gratuity);
@@ -150,6 +178,7 @@ function calculatePointToPointFare(booking) {
       legCarFare: legCar,
       carFare,
       additionalStopPrice,
+      sideDetourFee,
       extraOptionsPrice,
       gratuity,
       subtotal,
@@ -188,7 +217,7 @@ function calculateHourlyCharterFare(booking) {
   };
 }
 
-function calculateAirportFare(booking) {
+function calculateAirportFare(booking, opts) {
   assertCarForFare(booking.Car);
   const roundTrip = isRoundTripTripType(booking.tripType);
   const legCar = legCarFareFromCar(booking.Car, {
@@ -205,6 +234,8 @@ function calculateAirportFare(booking) {
     ? asMoney(booking.AirportPickupPreference.preferencePrice)
     : 0;
 
+  const sideDetourFee = sideDetourFeeFor(booking, opts);
+
   const extraOptionsPrice = sumExtraOptionsPrice(
     booking.ExtraOptions,
     "AirportBookExtraOption",
@@ -212,7 +243,11 @@ function calculateAirportFare(booking) {
   );
 
   const subtotal = roundMoney(
-    carFare + additionalStopPrice + airportPickupPreferencePrice + extraOptionsPrice
+    carFare +
+      additionalStopPrice +
+      airportPickupPreferencePrice +
+      sideDetourFee +
+      extraOptionsPrice
   );
   const gratuityPct = asMoney(booking.Gratuity?.percentage);
   const gratuity = gratuityOnCarFare(legCar, gratuityPct, booking.tripType);
@@ -225,6 +260,7 @@ function calculateAirportFare(booking) {
       carFare,
       additionalStopPrice,
       airportPickupPreferencePrice,
+      sideDetourFee,
       extraOptionsPrice,
       gratuity,
       subtotal,
@@ -264,7 +300,7 @@ function calculateLiveModePreAuthAmount({
   return roundMoney(subtotal + gratuity);
 }
 
-function calculateBookingFare(booking, bookingKind) {
+function calculateBookingFare(booking, bookingKind, opts) {
   const kind =
     bookingKind ||
     (booking.hourlyCharterBookId != null
@@ -278,11 +314,11 @@ function calculateBookingFare(booking, bookingKind) {
     case "HOURLY_CHARTER":
       return calculateHourlyCharterFare(booking);
     case "AIRPORT":
-      return calculateAirportFare(booking);
+      return calculateAirportFare(booking, opts);
     case "P2P":
     case "POINT_TO_POINT":
     default:
-      return calculatePointToPointFare(booking);
+      return calculatePointToPointFare(booking, opts);
   }
 }
 
@@ -299,6 +335,7 @@ function quoteFare({
   additionalStopPrice = 0,
   airportPickupPreferencePrice = 0,
   extraOptionsPerLeg = 0,
+  sideDetourFee = 0,
 }) {
   assertCarForFare(car);
   const kind = String(bookingKind || "P2P").toUpperCase();
@@ -325,6 +362,7 @@ function quoteFare({
     carFare +
       asMoney(additionalStopPrice) +
       asMoney(airportPickupPreferencePrice) +
+      asMoney(sideDetourFee) +
       extras
   );
   const gratuity = gratuityOnCarFare(legCar, gratuityPercentage, tripType);
@@ -343,6 +381,7 @@ module.exports = {
   isRoundTripTripType,
   legCarFareFromCar,
   gratuityOnCarFare,
+  sideDetourFeeFor,
   carHasFareRates,
   calculatePointToPointFare,
   calculateHourlyCharterFare,

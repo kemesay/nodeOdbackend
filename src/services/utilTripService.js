@@ -223,6 +223,8 @@ const { Gratuity } = require("../models/Gratuity.js");
 const { AdditionalStopOnTheWay } = require("../models/booking/AdditionalStopOnTheWay.js");
 const { AirportPickupPreference } = require("../models/airportBooking/AirportPickupPreference.js");
 const { ExtraOption } = require("../models/ExtraOption.js");
+const { SidePickDetour } = require("../models/booking/SidePickDetour.js");
+const { getSideDetourSettings } = require("./sideDetourSettingsService.js");
 
 // Define a function to search user bookings by user ID
 async function searchUserBookingsByUserId(userId) {
@@ -378,9 +380,30 @@ async function ensureHourlyCharterBookingForFare(booking) {
   return reloaded;
 }
 
+/**
+ * Counted with an explicit, always-run query rather than relying on
+ * `booking.SidePickDetours` being eager-loaded — ensurePointToPointBookingForFare/
+ * ensureAirportBookingForFare only reload the booking (and so only pick up
+ * associations) when the Car rate card is missing, which has nothing to do
+ * with whether side picks exist. This is the actual charge path, so it can't
+ * depend on that unrelated optimization happening to also load side picks.
+ */
+async function sideDetourFareOptsFor(pointToPointBookId, airportBookId) {
+  const count = await SidePickDetour.count({
+    where: pointToPointBookId ? { pointToPointBookId } : { airportBookId },
+  });
+  if (count === 0) return { sideDetourCount: 0 };
+  const settings = await getSideDetourSettings();
+  return {
+    sideDetourCount: count,
+    sideDetourSettings: { isActive: settings.isActive, startFee: settings.startFee },
+  };
+}
+
 async function calculateP2PTotalTripPrice(booking) {
   const hydrated = await ensurePointToPointBookingForFare(booking);
-  const { total } = calculatePointToPointFare(hydrated);
+  const opts = await sideDetourFareOptsFor(booking.pointToPointBookId, null);
+  const { total } = calculatePointToPointFare(hydrated, opts);
   return total;
 }
 
@@ -392,7 +415,8 @@ async function calculateHourlyCharterTotalTripPrice(booking) {
 
 async function calculateAirportBookingTotalTripPrice(booking) {
   const hydrated = await ensureAirportBookingForFare(booking);
-  const { total } = calculateAirportFare(hydrated);
+  const opts = await sideDetourFareOptsFor(null, booking.airportBookId);
+  const { total } = calculateAirportFare(hydrated, opts);
   return total;
 }
 

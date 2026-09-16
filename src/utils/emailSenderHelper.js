@@ -93,6 +93,10 @@ function buildP2PFareDetails(booking) {
     );
   }
 
+  if (breakdown.sideDetourFee > 0) {
+    fareDetails["Side Detour Fee"] = formatUsd(breakdown.sideDetourFee);
+  }
+
   return applyDiscountToFareDetails(fareDetails, booking);
 }
 
@@ -137,6 +141,10 @@ function buildAirportFareDetails(booking) {
     fareDetails["Stop On The Way Fare"] = formatUsd(
       breakdown.additionalStopPrice
     );
+  }
+
+  if (breakdown.sideDetourFee > 0) {
+    fareDetails["Side Detour Fee"] = formatUsd(breakdown.sideDetourFee);
   }
 
   return applyDiscountToFareDetails(fareDetails, booking);
