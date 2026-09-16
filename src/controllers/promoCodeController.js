@@ -7,7 +7,20 @@ const {
   getOrCreateReferralCode,
   getMyDiscountSummary,
 } = require("../services/promoCodeService.js");
+const {
+  getReferralSettings,
+  updateReferralSettings,
+} = require("../services/referralSettingsService.js");
 const authenticateToken = require("../utils/getUserFromToken.js");
+
+function serializeReferralSettings(settings) {
+  return {
+    referralDiscountPercent: Number(settings.referralDiscountPercent),
+    referrerRewardAmount: Number(settings.referrerRewardAmount),
+    maxLifetimePublicRedemptions: settings.maxLifetimePublicRedemptions,
+    maxLifetimeReferralRedemptions: settings.maxLifetimeReferralRedemptions,
+  };
+}
 
 async function createPromoCodeController(req, res, _next) {
   const promoCode = await createPublicPromoCode(req.body);
@@ -94,6 +107,22 @@ async function myDiscountSummaryController(req, res, _next) {
   return res.json(summary);
 }
 
+/** Admin-only: today's referral-program numbers (discount %, reward $, lifetime caps). */
+async function getReferralSettingsController(req, res, _next) {
+  const settings = await getReferralSettings();
+  return res.json(serializeReferralSettings(settings));
+}
+
+/**
+ * Admin-only: change one or more referral-program numbers. Only affects
+ * codes/rewards created from now on — anything already issued keeps the
+ * rate it was created with.
+ */
+async function updateReferralSettingsController(req, res, _next) {
+  const settings = await updateReferralSettings(req.body);
+  return res.json(serializeReferralSettings(settings));
+}
+
 module.exports = {
   createPromoCodeController,
   listPromoCodesController,
@@ -102,4 +131,6 @@ module.exports = {
   validatePromoCodeController,
   myReferralCodeController,
   myDiscountSummaryController,
+  getReferralSettingsController,
+  updateReferralSettingsController,
 };

@@ -9,12 +9,16 @@ const {
   validatePromoCodeController,
   myReferralCodeController,
   myDiscountSummaryController,
+  getReferralSettingsController,
+  updateReferralSettingsController,
 } = require("../controllers/promoCodeController.js");
 
 const {
   validateCreatePromoCode,
   validatePromoCodePreview,
 } = require("../models/PromoCode.js");
+
+const { validateUpdateReferralSettings } = require("../models/ReferralSettings.js");
 
 const admin = require("../middleware/admin.js");
 const auth = require("../middleware/auth.js");
@@ -30,6 +34,15 @@ router.get("/my-referral-code", [auth], myReferralCodeController);
 // /:code route below, or Express would match "my-discount-summary" as a
 // :code param instead.
 router.get("/my-discount-summary", [auth], myDiscountSummaryController);
+
+// Admin: today's referral-program numbers (discount %, reward $, lifetime
+// caps) — must also stay above /:code for the same reason as the route above.
+router.get("/referral-settings", [auth, admin], getReferralSettingsController);
+router.patch(
+  "/referral-settings",
+  [auth, admin, validate(validateUpdateReferralSettings)],
+  updateReferralSettingsController
+);
 
 // Admin campaign-code management.
 router.post("/", [auth, admin, validate(validateCreatePromoCode)], createPromoCodeController);
