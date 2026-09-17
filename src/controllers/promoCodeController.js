@@ -6,6 +6,7 @@ const {
   validatePromoCode,
   getOrCreateReferralCode,
   getMyDiscountSummary,
+  getActivePublicPromoForUser,
 } = require("../services/promoCodeService.js");
 const {
   getReferralSettings,
@@ -107,6 +108,17 @@ async function myDiscountSummaryController(req, res, _next) {
   return res.json(summary);
 }
 
+/**
+ * The current active public promotion this signed-in customer can still
+ * use, for an "Active Promo" card on their account page — { available: false }
+ * when there's nothing live for them right now (no active campaign, or
+ * they've already used up their allowance on every one that is).
+ */
+async function activePublicPromoCodeController(req, res, _next) {
+  const promo = await getActivePublicPromoForUser(req.user.userId);
+  return res.json(promo ? { available: true, ...promo } : { available: false });
+}
+
 /** Admin-only: today's referral-program numbers (discount %, reward $, lifetime caps). */
 async function getReferralSettingsController(req, res, _next) {
   const settings = await getReferralSettings();
@@ -131,6 +143,7 @@ module.exports = {
   validatePromoCodeController,
   myReferralCodeController,
   myDiscountSummaryController,
+  activePublicPromoCodeController,
   getReferralSettingsController,
   updateReferralSettingsController,
 };

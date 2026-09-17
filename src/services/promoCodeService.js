@@ -479,6 +479,85 @@ async function getMyDiscountSummary(userId) {
   };
 }
 
+/**
+ * The one active public (admin/marketing) promo code this signed-in customer
+ * could actually still use right now, for a "current promotion" card on
+ * their account page — or null if there isn't one. "Remaining" is THIS
+ * customer's own remaining uses (never a global/shared-pool number), the
+ * most restrictive of: the code's own per-user cap, its rolling-window cap
+ * if it has one, and the account-wide lifetime public-code cap — so it's
+ * never wrong in the optimistic direction. Newest active campaign wins when
+ * more than one exists; older ones this customer has exhausted are skipped
+ * in favor of ones they can still redeem.
+ */
+async function getActivePublicPromoForUser(userId) {
+  const now = new Date();
+  const candidates = await PromoCode.findAll({
+    where: {
+      type: "public",
+      isActive: true,
+      [Op.and]: [
+        { [Op.or]: [{ startsAt: null }, { startsAt: { [Op.lte]: now } }] },
+        { [Op.or]: [{ expiresAt: null }, { expiresAt: { [Op.gte]: now } }] },
+      ],
+    },
+    order: [["createdAt", "DESC"]],
+  });
+  if (candidates.length === 0) return null;
+
+  const settings = await getReferralSettings();
+  const identity = { redeemedByUserId: userId };
+
+  for (const promoCode of candidates) {
+    if (promoCode.maxTotalRedemptions) {
+      const totalUses = await PromoCodeRedemption.count({
+        where: { promoCodeId: promoCode.promoCodeId, status: "confirmed" },
+      });
+      if (totalUses >= promoCode.maxTotalRedemptions) continue;
+    }
+
+    const priorUses = await PromoCodeRedemption.count({
+      where: { promoCodeId: promoCode.promoCodeId, status: "confirmed", ...identity },
+    });
+    let remaining = promoCode.maxRedemptionsPerUser - priorUses;
+    if (remaining <= 0) continue;
+
+    if (promoCode.periodDays && promoCode.maxRedemptionsPerPeriod) {
+      const windowStart = new Date(
+        Date.now() - promoCode.periodDays * 24 * 60 * 60 * 1000
+      );
+      const usesInPeriod = await PromoCodeRedemption.count({
+        where: {
+          promoCodeId: promoCode.promoCodeId,
+          status: "confirmed",
+          createdAt: { [Op.gte]: windowStart },
+          ...identity,
+        },
+      });
+      remaining = Math.min(remaining, promoCode.maxRedemptionsPerPeriod - usesInPeriod);
+      if (remaining <= 0) continue;
+    }
+
+    const lifetimePublicUses = await PromoCodeRedemption.count({
+      where: { status: "confirmed", ...identity },
+      include: [{ model: PromoCode, where: { type: "public" } }],
+    });
+    remaining = Math.min(remaining, settings.maxLifetimePublicRedemptions - lifetimePublicUses);
+    if (remaining <= 0) continue;
+
+    return {
+      code: promoCode.code,
+      discountType: promoCode.discountType,
+      discountValue: Number(promoCode.discountValue),
+      minFareAmount: promoCode.minFareAmount != null ? Number(promoCode.minFareAmount) : null,
+      expiresAt: promoCode.expiresAt,
+      remainingUses: remaining,
+    };
+  }
+
+  return null;
+}
+
 async function createPublicPromoCode(data) {
   const existing = await PromoCode.findOne({ where: { code: data.code } });
   if (existing) throw new ValidationError("A promo code with this code already exists.");
@@ -522,6 +601,7 @@ module.exports = {
   redeemPromoCode,
   creditReferralRewardIfCompleted,
   getMyDiscountSummary,
+  getActivePublicPromoForUser,
   createPublicPromoCode,
   listPromoCodes,
   getPromoCodeByCode,

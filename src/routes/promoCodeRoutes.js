@@ -9,6 +9,7 @@ const {
   validatePromoCodeController,
   myReferralCodeController,
   myDiscountSummaryController,
+  activePublicPromoCodeController,
   getReferralSettingsController,
   updateReferralSettingsController,
 } = require("../controllers/promoCodeController.js");
@@ -34,6 +35,10 @@ router.get("/my-referral-code", [auth], myReferralCodeController);
 // /:code route below, or Express would match "my-discount-summary" as a
 // :code param instead.
 router.get("/my-discount-summary", [auth], myDiscountSummaryController);
+
+// Signed-in user's current active public promotion (account page card).
+// Must also stay above /:code for the same reason as the route above.
+router.get("/active-public", [auth], activePublicPromoCodeController);
 
 // Admin: today's referral-program numbers (discount %, reward $, lifetime
 // caps) — must also stay above /:code for the same reason as the route above.
