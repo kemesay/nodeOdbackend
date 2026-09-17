@@ -29,7 +29,7 @@ async function main() {
   });
   console.log(
     created
-      ? `  seeded default row: ${settings.referralDiscountPercent}% / $${settings.referrerRewardAmount} / ${settings.maxLifetimePublicRedemptions} public / ${settings.maxLifetimeReferralRedemptions} referral`
+      ? `  seeded default row: ${settings.referralDiscountPercent}% / ${settings.maxLifetimePublicRedemptions} public / ${settings.maxLifetimeReferralRedemptions} referral`
       : "  row already existed, left untouched"
   );
 

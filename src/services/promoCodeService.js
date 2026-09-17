@@ -352,8 +352,10 @@ async function redeemPromoCode({
   // actually have. Opened as "pending" regardless of any lifetime cap —
   // that's only checked when a code is *spent* (see validatePromoCode),
   // since a pending referral that never completes shouldn't burn a slot.
-  // The reward amount is frozen at today's admin-set rate the moment this
-  // reward is opened, not whatever it is later when it's credited.
+  // The reward percent is frozen at today's admin-set rate the moment this
+  // reward is opened, not whatever it is later when it's credited — the
+  // same percent as the referral discount itself, so both sides of a
+  // referral are always in sync with one setting.
   if (promoCode.type === "referral" && promoCode.ownerUserId) {
     const settings = await getReferralSettings();
     await ReferralReward.create({
@@ -364,7 +366,7 @@ async function redeemPromoCode({
       promoCodeId: promoCode.promoCodeId,
       triggeringBookingId: bookingId,
       triggeringBookingType: bookingType,
-      rewardAmount: settings.referrerRewardAmount,
+      rewardPercent: settings.referralDiscountPercent,
       rewardStatus: "pending",
     });
   }
@@ -400,8 +402,8 @@ async function creditReferralRewardIfCompleted(bookingType, bookingId) {
     code: `${generateReferralCode(firstName, referrer.userId)}R${reward.referralRewardId}`.slice(0, 20),
     type: "reward",
     ownerUserId: referrer.userId,
-    discountType: "flat",
-    discountValue: reward.rewardAmount,
+    discountType: "percent",
+    discountValue: reward.rewardPercent,
     maxRedemptionsPerUser: 1,
     maxTotalRedemptions: 1,
     isActive: true,
@@ -414,17 +416,17 @@ async function creditReferralRewardIfCompleted(bookingType, bookingId) {
   await reward.save();
 
   logger.info(
-    `Referral reward credited: referrer ${referrer.userId} got code ${rewardCode.code} ($${reward.rewardAmount})`
+    `Referral reward credited: referrer ${referrer.userId} got code ${rewardCode.code} (${reward.rewardPercent}% off)`
   );
   return rewardCode;
 }
 
 /**
  * Everything a signed-in user would want to see on a "My Rewards" screen:
- * how much they've actually saved so far, how much they've earned by
- * referring others, and how many of their lifetime chances remain in each
- * of the three caps (public codes, referral/reward codes spent, referral
- * rewards earned as a referrer).
+ * how much they've actually saved so far, how many rewards they've earned
+ * by referring others, and how many of their lifetime chances remain in
+ * each of the three caps (public codes, referral/reward codes spent,
+ * referral rewards earned as a referrer).
  */
 async function getMyDiscountSummary(userId) {
   const redemptions = await PromoCodeRedemption.findAll({
@@ -444,13 +446,13 @@ async function getMyDiscountSummary(userId) {
     }
   }
 
+  // No dollar total here anymore — a reward is now a %-off code rather than
+  // a fixed $ amount, so there's no known dollar value until (and unless)
+  // the referrer actually redeems it on a ride; `referralRewardsEarned.used`
+  // below is the meaningful "how many you've earned" number instead.
   const creditedRewards = await ReferralReward.findAll({
     where: { referrerUserId: userId, rewardStatus: "credited" },
   });
-  const totalReferralRewardsEarned = creditedRewards.reduce(
-    (sum, reward) => sum + (Number(reward.rewardAmount) || 0),
-    0
-  );
 
   const pendingReferralRewards = await ReferralReward.count({
     where: { referrerUserId: userId, rewardStatus: "pending" },
@@ -461,7 +463,6 @@ async function getMyDiscountSummary(userId) {
 
   return {
     totalSaved: round(totalSaved),
-    totalReferralRewardsEarned: round(totalReferralRewardsEarned),
     publicCodes: {
       used: publicUsed,
       remaining: Math.max(settings.maxLifetimePublicRedemptions - publicUsed, 0),

@@ -211,8 +211,12 @@ const ReferralReward = sequelize.define(
       type: DataTypes.ENUM(...BOOKING_TYPES),
       allowNull: true,
     },
-    rewardAmount: {
-      type: DataTypes.DECIMAL(10, 2),
+    // % off the referrer's next ride — the same figure as
+    // ReferralSettings.referralDiscountPercent at the moment this reward was
+    // opened (see redeemPromoCode), frozen here so a later settings change
+    // never retroactively changes an already-pending reward.
+    rewardPercent: {
+      type: DataTypes.DECIMAL(5, 2),
       allowNull: false,
     },
     rewardCodeId: {

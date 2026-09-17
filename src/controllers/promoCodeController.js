@@ -17,7 +17,6 @@ const authenticateToken = require("../utils/getUserFromToken.js");
 function serializeReferralSettings(settings) {
   return {
     referralDiscountPercent: Number(settings.referralDiscountPercent),
-    referrerRewardAmount: Number(settings.referrerRewardAmount),
     maxLifetimePublicRedemptions: settings.maxLifetimePublicRedemptions,
     maxLifetimeReferralRedemptions: settings.maxLifetimeReferralRedemptions,
   };
