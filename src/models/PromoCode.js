@@ -247,20 +247,25 @@ ReferralReward.belongsTo(PromoCode, { foreignKey: "promoCodeId" });
 ReferralReward.belongsTo(User, { foreignKey: "referrerUserId", as: "referrer" });
 ReferralReward.belongsTo(User, { foreignKey: "referredUserId", as: "referred" });
 
-const codeUpper = () =>
+// Normalizes a customer-submitted code before lookup. Lowercase is the
+// canonical case for every AUTO-GENERATED code (see generateReferralCode) —
+// stored lowercase, looked up lowercase, so matching is exact regardless of
+// collation. Admin-typed public codes (codeAsEntered, below) keep whatever
+// case the admin chose for display, so matching those still relies on the
+// database collation being case-insensitive (*_ci, confirmed on production
+// MySQL) — unchanged from before, just now normalizing to lowercase instead
+// of uppercase on this side of the comparison.
+const codeLower = () =>
   Joi.string()
     .trim()
-    .uppercase()
-    .pattern(/^[A-Z0-9]{4,20}$/)
+    .lowercase()
+    .pattern(/^[a-zA-Z0-9]{4,20}$/)
     .messages({
       "string.pattern.base": "Promo code must be 4-20 letters/numbers, no spaces or symbols.",
     });
 
 // Preserves whatever casing the admin typed (e.g. "OdaCar") for display —
-// only used at creation time. Matching still works regardless of how a
-// customer later types it: the `code` column's collation (*_ci, confirmed
-// on the live DB) makes MySQL equality comparisons case-insensitive, so
-// codeUpper()'s forced-uppercase lookups elsewhere still find this row.
+// only used at creation time.
 const codeAsEntered = () =>
   Joi.string()
     .trim()
@@ -297,12 +302,12 @@ const validateCreatePromoCode = Joi.object({
 
 /** Applying a code inline as part of a booking payload (booking services pick this out). */
 const validateApplyPromoCode = Joi.object({
-  code: codeUpper().required(),
+  code: codeLower().required(),
 });
 
 /** Standalone `/promo-codes/validate` preview — needs the fare context to compute a discount. */
 const validatePromoCodePreview = Joi.object({
-  code: codeUpper().required(),
+  code: codeLower().required(),
   bookingType: Joi.string().valid(...BOOKING_TYPES).required(),
   fareAmount: Joi.number().min(0.01).required(),
 });

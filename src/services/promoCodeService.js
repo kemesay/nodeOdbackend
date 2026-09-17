@@ -79,23 +79,27 @@ const BOOKING_PK = {
 
 /**
  * Deterministic, collision-resistant referral code: a 2-letter name prefix
- * + a 5-character keyed-hash of the userId — 7 characters total, short
- * enough to read out loud or type from memory. Keyed-hash (not the raw
- * userId) so nobody can enumerate every referral code in the system by
- * counting up; deterministic so the same user always gets the same code
- * back rather than a new random one on every call.
+ * + up to a 5-character keyed-hash of the userId — 7 characters total in
+ * the overwhelming majority of cases, occasionally 6 or fewer (a base36
+ * number can be shorter than 5 digits when its leading digits are zero),
+ * never more. Short enough to read out loud or type from memory. Keyed-
+ * hash (not the raw userId) so nobody can enumerate every referral code in
+ * the system by counting up; deterministic so the same user always gets
+ * the same code back rather than a new random one on every call.
  */
 function generateReferralCode(firstName, userId) {
-  const cleanName = String(firstName || "US")
+  const cleanName = String(firstName || "us")
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-zA-Z]/g, "")
-    .toUpperCase()
-    .slice(0, 2) || "US";
+    .toLowerCase()
+    .slice(0, 2) || "us";
 
   const secret = process.env.REFERRAL_CODE_SECRET || process.env.JWT_PRIVATE_KEY || "oda-referral";
   const hash = crypto.createHmac("sha256", secret).update(String(userId)).digest("hex");
-  const suffix = BigInt("0x" + hash.slice(0, 10)).toString(36).toUpperCase().slice(0, 5);
+  // BigInt#toString(36) is already lowercase a-z by spec — no case
+  // conversion needed for the suffix.
+  const suffix = BigInt("0x" + hash.slice(0, 10)).toString(36).slice(0, 5);
 
   return `${cleanName}${suffix}`;
 }
@@ -195,7 +199,7 @@ async function validatePromoCode({
   fareAmount,
   bookingId,
 }) {
-  const normalizedCode = String(code || "").trim().toUpperCase();
+  const normalizedCode = String(code || "").trim().toLowerCase();
   const promoCode = await PromoCode.findOne({ where: { code: normalizedCode } });
 
   if (!promoCode || !promoCode.isActive) {
@@ -583,7 +587,7 @@ async function listPromoCodes({ page = 1, pageSize = 20 } = {}) {
 
 async function getPromoCodeByCode(code) {
   const promoCode = await PromoCode.findOne({
-    where: { code: String(code || "").trim().toUpperCase() },
+    where: { code: String(code || "").trim().toLowerCase() },
     include: [{ model: PromoCodeRedemption }],
   });
   if (!promoCode) throw new ResourceNotFoundError("Promo code not found.");
