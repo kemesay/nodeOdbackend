@@ -78,17 +78,20 @@ const BOOKING_PK = {
 };
 
 /**
- * Deterministic, collision-resistant referral code: FIRSTNAME + a short
- * keyed-hash of the userId (not the raw id — a raw id would let anyone
- * enumerate every referral code in the system by counting up).
+ * Deterministic, collision-resistant referral code: a 2-letter name prefix
+ * + a 5-character keyed-hash of the userId — 7 characters total, short
+ * enough to read out loud or type from memory. Keyed-hash (not the raw
+ * userId) so nobody can enumerate every referral code in the system by
+ * counting up; deterministic so the same user always gets the same code
+ * back rather than a new random one on every call.
  */
 function generateReferralCode(firstName, userId) {
-  const cleanName = String(firstName || "USER")
+  const cleanName = String(firstName || "US")
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-zA-Z]/g, "")
     .toUpperCase()
-    .slice(0, 6) || "USER";
+    .slice(0, 2) || "US";
 
   const secret = process.env.REFERRAL_CODE_SECRET || process.env.JWT_PRIVATE_KEY || "oda-referral";
   const hash = crypto.createHmac("sha256", secret).update(String(userId)).digest("hex");
