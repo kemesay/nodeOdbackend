@@ -287,22 +287,40 @@ const validateCreatePromoCode = Joi.object({
   // fare. maxDiscountAmount stays a real column on the table (in case a cap
   // is ever wanted again for some future code), but it's deliberately not
   // accepted here since nothing in the discount calculation reads it.
-  minFareAmount: Joi.number().min(0).allow(null),
+  // minFareAmount is likewise a real column but no longer accepted here —
+  // every public code applies to any fare amount now.
   applicableBookingTypes: Joi.array().items(Joi.string().valid(...BOOKING_TYPES)).allow(null),
   firstRideOnly: Joi.boolean().default(false),
   maxTotalRedemptions: Joi.number().integer().min(1).allow(null),
   maxRedemptionsPerUser: Joi.number().integer().min(1).default(1),
-  // Rolling-window cap — e.g. periodDays: 15, maxRedemptionsPerPeriod: 5
-  // means "5 uses per person in any trailing 15-day window", recovering
-  // automatically as old redemptions age out. Optional, but must be given
-  // together — one without the other doesn't mean anything.
-  periodDays: Joi.number().integer().min(1).allow(null),
-  maxRedemptionsPerPeriod: Joi.number().integer().min(1).allow(null),
+  // periodDays/maxRedemptionsPerPeriod (the rolling-window cap) are also
+  // real columns, no longer accepted here — maxRedemptionsPerUser alone
+  // covers "how many times one customer can use this code" well enough
+  // that the extra rolling-window concept was more confusing than useful.
   campaignSource: Joi.string().max(50).allow("", null),
   isActive: Joi.boolean().default(true),
   startsAt: Joi.date().allow(null),
   expiresAt: Joi.date().allow(null),
-}).and("periodDays", "maxRedemptionsPerPeriod");
+});
+
+/**
+ * Admin editing an EXISTING public code's terms — same shape as create,
+ * minus `code` itself (never renamed in place: a friend link or shared
+ * code text already pointing at the old string would silently break) and
+ * with everything optional so a partial PATCH only touches what's sent.
+ */
+const validateUpdatePromoCode = Joi.object({
+  discountType: Joi.string().valid("percent", "flat"),
+  discountValue: Joi.number().min(0.01),
+  applicableBookingTypes: Joi.array().items(Joi.string().valid(...BOOKING_TYPES)).allow(null),
+  firstRideOnly: Joi.boolean(),
+  maxTotalRedemptions: Joi.number().integer().min(1).allow(null),
+  maxRedemptionsPerUser: Joi.number().integer().min(1),
+  campaignSource: Joi.string().max(50).allow("", null),
+  isActive: Joi.boolean(),
+  startsAt: Joi.date().allow(null),
+  expiresAt: Joi.date().allow(null),
+}).min(1);
 
 /** Applying a code inline as part of a booking payload (booking services pick this out). */
 const validateApplyPromoCode = Joi.object({
@@ -322,6 +340,7 @@ module.exports = {
   ReferralReward,
   BOOKING_TYPES,
   validateCreatePromoCode,
+  validateUpdatePromoCode,
   validateApplyPromoCode,
   validatePromoCodePreview,
 };

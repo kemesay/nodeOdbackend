@@ -1,5 +1,6 @@
 const {
   createPublicPromoCode,
+  updatePublicPromoCode,
   listPromoCodes,
   getPromoCodeByCode,
   setPromoCodeActive,
@@ -40,6 +41,17 @@ async function getPromoCodeController(req, res, _next) {
 
 async function setPromoCodeActiveController(req, res, _next) {
   const promoCode = await setPromoCodeActive(req.params.code, req.body.isActive);
+  return res.json(promoCode);
+}
+
+/**
+ * Admin editing an existing public code's terms in place (discount, dates,
+ * limits, active state) — works on an inactive code just as well as an
+ * active one. Activating this code here automatically deactivates any
+ * other public code, since only one is ever "the current promotion."
+ */
+async function updatePromoCodeController(req, res, _next) {
+  const promoCode = await updatePublicPromoCode(req.params.code, req.body);
   return res.json(promoCode);
 }
 
@@ -139,6 +151,7 @@ module.exports = {
   listPromoCodesController,
   getPromoCodeController,
   setPromoCodeActiveController,
+  updatePromoCodeController,
   validatePromoCodeController,
   myReferralCodeController,
   myDiscountSummaryController,

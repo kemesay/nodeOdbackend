@@ -6,6 +6,7 @@ const {
   listPromoCodesController,
   getPromoCodeController,
   setPromoCodeActiveController,
+  updatePromoCodeController,
   validatePromoCodeController,
   myReferralCodeController,
   myDiscountSummaryController,
@@ -16,6 +17,7 @@ const {
 
 const {
   validateCreatePromoCode,
+  validateUpdatePromoCode,
   validatePromoCodePreview,
 } = require("../models/PromoCode.js");
 
@@ -53,6 +55,11 @@ router.patch(
 router.post("/", [auth, admin, validate(validateCreatePromoCode)], createPromoCodeController);
 router.get("/", [auth, admin], listPromoCodesController);
 router.get("/:code", [auth, admin], getPromoCodeController);
+router.patch(
+  "/:code",
+  [auth, admin, validate(validateUpdatePromoCode)],
+  updatePromoCodeController
+);
 router.patch("/:code/active", [auth, admin], setPromoCodeActiveController);
 
 module.exports = router;

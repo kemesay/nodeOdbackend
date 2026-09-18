@@ -566,11 +566,47 @@ async function getActivePublicPromoForUser(userId) {
   return null;
 }
 
+/**
+ * Only one public promo code is ever "the current promotion" — turning one
+ * on (at create or update time) automatically turns off any other public
+ * code that was active, so an admin never has to remember to deactivate the
+ * old promotion before starting a new one. Referral/reward codes are
+ * unaffected — every customer keeps their own, independent of this.
+ */
+async function deactivateOtherPublicPromoCodes(exceptPromoCodeId) {
+  await PromoCode.update(
+    { isActive: false },
+    { where: { type: "public", promoCodeId: { [Op.ne]: exceptPromoCodeId } } }
+  );
+}
+
 async function createPublicPromoCode(data) {
   const existing = await PromoCode.findOne({ where: { code: data.code } });
   if (existing) throw new ValidationError("A promo code with this code already exists.");
 
-  return PromoCode.create({ ...data, type: "public", ownerUserId: null });
+  const promoCode = await PromoCode.create({ ...data, type: "public", ownerUserId: null });
+  if (promoCode.isActive) {
+    await deactivateOtherPublicPromoCodes(promoCode.promoCodeId);
+  }
+  return promoCode;
+}
+
+/**
+ * Admin editing an existing public code's terms in place — same code
+ * string, new discount/dates/limits/active-state. Works on an inactive
+ * code just as well as an active one; there's no restriction on which
+ * public code can be edited.
+ */
+async function updatePublicPromoCode(code, updates) {
+  const promoCode = await getPromoCodeByCode(code);
+  if (promoCode.type !== "public") {
+    throw new ValidationError("Only public promo codes can be edited this way.");
+  }
+  await promoCode.update(updates);
+  if (updates.isActive) {
+    await deactivateOtherPublicPromoCodes(promoCode.promoCodeId);
+  }
+  return promoCode;
 }
 
 async function listPromoCodes({ page = 1, pageSize = 20 } = {}) {
@@ -598,7 +634,11 @@ async function getPromoCodeByCode(code) {
 async function setPromoCodeActive(code, isActive) {
   const promoCode = await getPromoCodeByCode(code);
   promoCode.isActive = Boolean(isActive);
-  return promoCode.save();
+  await promoCode.save();
+  if (promoCode.isActive && promoCode.type === "public") {
+    await deactivateOtherPublicPromoCodes(promoCode.promoCodeId);
+  }
+  return promoCode;
 }
 
 module.exports = {
@@ -611,6 +651,7 @@ module.exports = {
   getMyDiscountSummary,
   getActivePublicPromoForUser,
   createPublicPromoCode,
+  updatePublicPromoCode,
   listPromoCodes,
   getPromoCodeByCode,
   setPromoCodeActive,
