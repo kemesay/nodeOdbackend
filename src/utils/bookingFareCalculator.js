@@ -62,6 +62,22 @@ function gratuityOnCarFare(legCarFare, percentage, tripType) {
 }
 
 /**
+ * A promo discount reduces the ride's own cost — gratuity should be a tip
+ * on what the ride actually costs after that discount, not on the
+ * pre-discount sticker price. `legCarFare` is scaled down by whatever
+ * fraction of the discount falls on the car-fare portion of the subtotal
+ * (proportional to its share — extras/stops/side-detour fees are never
+ * part of the gratuity base, discounted or not, same as before), so this
+ * reduces to exactly `legCarFare` when there's no discount at all —
+ * undiscounted bookings compute gratuity exactly as they always have.
+ */
+function discountedLegCarFare(legCarFare, subtotal, discount) {
+  if (!discount || subtotal <= 0) return legCarFare;
+  const legCarShareOfDiscount = roundMoney((discount * legCarFare) / subtotal);
+  return roundMoney(Math.max(legCarFare - legCarShareOfDiscount, 0));
+}
+
+/**
  * Optional flat fee for a booking that has at least one side-pick detour
  * stop — added once regardless of trip type (never doubled for round trip),
  * same as additionalStopPrice. Off by default; an admin turns it on and sets
@@ -168,9 +184,21 @@ function calculatePointToPointFare(booking, opts) {
   const subtotal = roundMoney(
     carFare + additionalStopPrice + sideDetourFee + extraOptionsPrice
   );
+
+  // Capped at the subtotal itself — a discount can never make gratuity or
+  // the final total negative. 0 when no promo code applied (opts.discount
+  // omitted), which is also what makes every calculation below reduce to
+  // exactly the pre-discount behavior.
+  const discount = roundMoney(Math.min(Math.max(asMoney(opts?.discount), 0), subtotal));
+  const discountedSubtotal = roundMoney(subtotal - discount);
+
   const gratuityPct = asMoney(booking.Gratuity?.percentage);
-  const gratuity = gratuityOnCarFare(legCar, gratuityPct, booking.tripType);
-  const total = roundMoney(subtotal + gratuity);
+  const gratuity = gratuityOnCarFare(
+    discountedLegCarFare(legCar, subtotal, discount),
+    gratuityPct,
+    booking.tripType
+  );
+  const total = roundMoney(discountedSubtotal + gratuity);
 
   return {
     total,
@@ -180,13 +208,15 @@ function calculatePointToPointFare(booking, opts) {
       additionalStopPrice,
       sideDetourFee,
       extraOptionsPrice,
-      gratuity,
+      discount,
       subtotal,
+      discountedSubtotal,
+      gratuity,
     },
   };
 }
 
-function calculateHourlyCharterFare(booking) {
+function calculateHourlyCharterFare(booking, opts) {
   assertCarForFare(booking.Car);
   const legCar = legCarFareFromCar(booking.Car, {
     bookingKind: "HOURLY",
@@ -201,9 +231,17 @@ function calculateHourlyCharterFare(booking) {
   );
 
   const subtotal = roundMoney(carFare + extraOptionsPrice);
+
+  const discount = roundMoney(Math.min(Math.max(asMoney(opts?.discount), 0), subtotal));
+  const discountedSubtotal = roundMoney(subtotal - discount);
+
   const gratuityPct = asMoney(booking.Gratuity?.percentage);
-  const gratuity = gratuityOnCarFare(legCar, gratuityPct, booking.tripType);
-  const total = roundMoney(subtotal + gratuity);
+  const gratuity = gratuityOnCarFare(
+    discountedLegCarFare(legCar, subtotal, discount),
+    gratuityPct,
+    booking.tripType
+  );
+  const total = roundMoney(discountedSubtotal + gratuity);
 
   return {
     total,
@@ -211,8 +249,10 @@ function calculateHourlyCharterFare(booking) {
       legCarFare: legCar,
       carFare,
       extraOptionsPrice,
-      gratuity,
+      discount,
       subtotal,
+      discountedSubtotal,
+      gratuity,
     },
   };
 }
@@ -249,9 +289,17 @@ function calculateAirportFare(booking, opts) {
       sideDetourFee +
       extraOptionsPrice
   );
+
+  const discount = roundMoney(Math.min(Math.max(asMoney(opts?.discount), 0), subtotal));
+  const discountedSubtotal = roundMoney(subtotal - discount);
+
   const gratuityPct = asMoney(booking.Gratuity?.percentage);
-  const gratuity = gratuityOnCarFare(legCar, gratuityPct, booking.tripType);
-  const total = roundMoney(subtotal + gratuity);
+  const gratuity = gratuityOnCarFare(
+    discountedLegCarFare(legCar, subtotal, discount),
+    gratuityPct,
+    booking.tripType
+  );
+  const total = roundMoney(discountedSubtotal + gratuity);
 
   return {
     total,
@@ -262,8 +310,10 @@ function calculateAirportFare(booking, opts) {
       airportPickupPreferencePrice,
       sideDetourFee,
       extraOptionsPrice,
-      gratuity,
+      discount,
       subtotal,
+      discountedSubtotal,
+      gratuity,
     },
   };
 }
@@ -312,7 +362,7 @@ function calculateBookingFare(booking, bookingKind, opts) {
   switch (kind) {
     case "HOURLY":
     case "HOURLY_CHARTER":
-      return calculateHourlyCharterFare(booking);
+      return calculateHourlyCharterFare(booking, opts);
     case "AIRPORT":
       return calculateAirportFare(booking, opts);
     case "P2P":

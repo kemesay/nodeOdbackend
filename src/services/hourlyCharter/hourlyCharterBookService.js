@@ -318,6 +318,7 @@ const PAYMENT_DETAIL_SAFE_ATTRIBUTES = [
 ];
 const {
   calculateHourlyCharterTotalTripPrice,
+  calculateHourlyCharterSubtotal,
 } = require("../utilTripService.js");
 const {
   calculateExtraTimeFare,
@@ -406,11 +407,6 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       hourlyCharterBook.hourlyCharterBookId
     );
 
-    //calculate total trip fee
-    const totalTripFee = await calculateHourlyCharterTotalTripPrice(
-      hourlyCharterBook
-    );
-
     // LIVE mode: pre-authorize (selectedHours + bufferHours) so the hold
     // covers potential overtime — actual capture happens at trip end.
     const billingMode = hourlyCharterBook.billingMode || "PRE_BOOKED";
@@ -424,23 +420,35 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       );
     }
 
+    // Promo code, if provided, is validated against the ride's own
+    // pre-gratuity subtotal — never the gratuity-inclusive total — so a
+    // discount can never eat into gratuity, and gratuity (below) can then
+    // be computed on the discounted ride cost rather than the pre-discount
+    // sticker price.
     let appliedPromoCode = null;
     let discountAmount = 0;
-    let discountedTripFee = totalTripFee;
     if (promoCode) {
+      const subtotal = await calculateHourlyCharterSubtotal(hourlyCharterBook);
       const result = await validatePromoCode({
         code: promoCode,
         userId,
         guestEmail: userId ? undefined : hourlyCharterBook.passengerEmail,
         guestPhone: userId ? undefined : hourlyCharterBook.passengerCellPhone,
         bookingType: "Hourly Charter",
-        fareAmount: totalTripFee,
+        fareAmount: subtotal,
         bookingId: hourlyCharterBook.hourlyCharterBookId,
       });
       appliedPromoCode = result.promoCode;
       discountAmount = result.discount;
-      discountedTripFee = Math.max(totalTripFee - discountAmount, 0);
     }
+
+    // The actual charge — gratuity is computed inside here on the
+    // discounted ride cost when discountAmount > 0, and exactly as before
+    // (on the full ride cost) when it's 0. (LIVE mode always has
+    // discountAmount === 0 here, since it's rejected above.)
+    const discountedTripFee = await calculateHourlyCharterTotalTripPrice(hourlyCharterBook, {
+      discount: discountAmount,
+    });
 
     hourlyCharterBook.totalTripFeeInDollars = discountedTripFee;
     if (appliedPromoCode) {
@@ -682,12 +690,14 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
         throw new ValidationError("Discount amount cannot be negative.");
       }
 
-      // Recompute the true, undiscounted fare fresh each time — see the P2P
-      // equivalent of this function for why (idempotency + additive with any
-      // promo-code discount instead of overwriting it).
-      const baseFare = await calculateHourlyCharterTotalTripPrice(hourlyCharterBook);
+      // Recompute the true fare fresh each time, feeding the already-applied
+      // promo discount (if any) back in so gratuity still reflects it — see
+      // the P2P equivalent of this function for why (idempotency + additive
+      // with any promo-code discount instead of overwriting it).
       const promoDiscount = Number(hourlyCharterBook.promoDiscountAmountInDollars) || 0;
-      const remainingAfterPromo = Math.max(baseFare - promoDiscount, 0);
+      const remainingAfterPromo = await calculateHourlyCharterTotalTripPrice(hourlyCharterBook, {
+        discount: promoDiscount,
+      });
 
       if (discountAmount > remainingAfterPromo) {
         throw new ValidationError(

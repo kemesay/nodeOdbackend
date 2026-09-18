@@ -392,7 +392,10 @@ const {
 } = require("../booking/additionalStopOnTheWayService");
 const { SidePickDetour } = require("../../models/booking/SidePickDetour.js");
 
-const { calculateAirportBookingTotalTripPrice } = require("../utilTripService");
+const {
+  calculateAirportBookingTotalTripPrice,
+  calculateAirportBookingSubtotal,
+} = require("../utilTripService");
 
 const { bookingNotification, bookingUpdateNotification } = require("../../utils/emailSender");
 const generateConfirmationNumber = require("../bookingUtils.js");
@@ -530,25 +533,34 @@ async function createAirportBook(airportBookData) {
 
     airportBook = await getAirportBookById(airportBook.airportBookId);
 
-    const totalTripFee = await calculateAirportBookingTotalTripPrice(airportBook);
-
+    // Promo code, if provided, is validated against the ride's own
+    // pre-gratuity subtotal — never the gratuity-inclusive total — so a
+    // discount can never eat into gratuity, and gratuity (below) can then
+    // be computed on the discounted ride cost rather than the pre-discount
+    // sticker price.
     let appliedPromoCode = null;
     let discountAmount = 0;
-    let chargeAmount = totalTripFee;
     if (promoCode) {
+      const subtotal = await calculateAirportBookingSubtotal(airportBook);
       const result = await validatePromoCode({
         code: promoCode,
         userId,
         guestEmail: userId ? undefined : airportBook.passengerEmail,
         guestPhone: userId ? undefined : airportBook.passengerCellPhone,
         bookingType: "Airport Service",
-        fareAmount: totalTripFee,
+        fareAmount: subtotal,
         bookingId: airportBook.airportBookId,
       });
       appliedPromoCode = result.promoCode;
       discountAmount = result.discount;
-      chargeAmount = Math.max(totalTripFee - discountAmount, 0);
     }
+
+    // The actual charge — gratuity is computed inside here on the
+    // discounted ride cost when discountAmount > 0, and exactly as before
+    // (on the full ride cost) when it's 0.
+    const chargeAmount = await calculateAirportBookingTotalTripPrice(airportBook, {
+      discount: discountAmount,
+    });
 
     airportBook.totalTripFeeInDollars = chargeAmount;
     if (appliedPromoCode) {
@@ -785,12 +797,14 @@ async function applyDiscountToAirportBook(airportBookId, discountAmount) {
     throw new ValidationError("Discount amount cannot be negative.");
   }
 
-  // Recompute the true, undiscounted fare fresh each time — see the P2P
-  // equivalent of this function for why (idempotency + additive with any
-  // promo-code discount instead of overwriting it).
-  const baseFare = await calculateAirportBookingTotalTripPrice(airportBook);
+  // Recompute the true fare fresh each time, feeding the already-applied
+  // promo discount (if any) back in so gratuity still reflects it — see
+  // the P2P equivalent of this function for why (idempotency + additive
+  // with any promo-code discount instead of overwriting it).
   const promoDiscount = Number(airportBook.promoDiscountAmountInDollars) || 0;
-  const remainingAfterPromo = Math.max(baseFare - promoDiscount, 0);
+  const remainingAfterPromo = await calculateAirportBookingTotalTripPrice(airportBook, {
+    discount: promoDiscount,
+  });
 
   if (discountAmount > remainingAfterPromo) {
     throw new ValidationError(

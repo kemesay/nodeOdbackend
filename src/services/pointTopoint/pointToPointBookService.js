@@ -329,7 +329,7 @@ const {
 } = require("../booking/additionalStopOnTheWayService.js");
 const { SidePickDetour } = require("../../models/booking/SidePickDetour.js");
 
-const { calculateP2PTotalTripPrice } = require("../utilTripService.js");
+const { calculateP2PTotalTripPrice, calculateP2PSubtotal } = require("../utilTripService.js");
 const generateConfirmationNumber = require("../bookingUtils.js");
 const { signBookingRoomToken } = require("../../realtime/socketRoomToken.js");
 const { AirportBook } = require("../../models/airportBooking/AirportBook.js");
@@ -420,29 +420,34 @@ async function createPointToPointBook(pointToPointBookData) {
       pointToPointBook.pointToPointBookId
     );
 
-    //calculate total trip fee
-    const totalTripFee = await calculateP2PTotalTripPrice(pointToPointBook);
-
-    // Promo code, if provided, is validated (and its discount subtracted)
-    // before payment is charged, so the customer's card is only ever
-    // charged the discounted amount.
+    // Promo code, if provided, is validated against the ride's own
+    // pre-gratuity subtotal — never the gratuity-inclusive total — so a
+    // discount can never eat into gratuity, and gratuity (below) can then
+    // be computed on the discounted ride cost rather than the pre-discount
+    // sticker price.
     let appliedPromoCode = null;
     let discountAmount = 0;
-    let chargeAmount = totalTripFee;
     if (promoCode) {
+      const subtotal = await calculateP2PSubtotal(pointToPointBook);
       const result = await validatePromoCode({
         code: promoCode,
         userId,
         guestEmail: userId ? undefined : pointToPointBook.passengerEmail,
         guestPhone: userId ? undefined : pointToPointBook.passengerCellPhone,
         bookingType: "Point to point",
-        fareAmount: totalTripFee,
+        fareAmount: subtotal,
         bookingId: pointToPointBook.pointToPointBookId,
       });
       appliedPromoCode = result.promoCode;
       discountAmount = result.discount;
-      chargeAmount = Math.max(totalTripFee - discountAmount, 0);
     }
+
+    // The actual charge — gratuity is computed inside here on the
+    // discounted ride cost when discountAmount > 0, and exactly as before
+    // (on the full ride cost) when it's 0.
+    const chargeAmount = await calculateP2PTotalTripPrice(pointToPointBook, {
+      discount: discountAmount,
+    });
 
     pointToPointBook.totalTripFeeInDollars = chargeAmount;
     if (appliedPromoCode) {
@@ -667,16 +672,20 @@ async function applyDiscountToPointToPointBook(pointToPointBookId, discountAmoun
     throw new ValidationError("Discount amount cannot be negative.");
   }
 
-  // Always recompute the true, undiscounted fare fresh rather than trusting
-  // the currently-stored totalTripFeeInDollars — that column may already
-  // reflect a promo-code discount, an earlier manual discount, or both.
-  // Recomputing from scratch each time makes this idempotent (calling it
-  // twice with the same amount is a no-op) and keeps the manual discount
-  // strictly additive on top of any promo discount instead of one silently
-  // overwriting the other's effect on the total.
-  const baseFare = await calculateP2PTotalTripPrice(pointToPointBook);
+  // Always recompute the true fare fresh rather than trusting the
+  // currently-stored totalTripFeeInDollars — that column may already
+  // reflect an earlier manual discount. Feeds the already-applied promo
+  // discount (if any) back into the calculation so gratuity is still
+  // computed on the promo-discounted ride cost, not the pre-discount
+  // sticker price — recomputing from scratch each time makes this
+  // idempotent (calling it twice with the same amount is a no-op) and
+  // keeps the manual discount strictly additive on top of any promo
+  // discount instead of one silently overwriting the other's effect on
+  // the total.
   const promoDiscount = Number(pointToPointBook.promoDiscountAmountInDollars) || 0;
-  const remainingAfterPromo = Math.max(baseFare - promoDiscount, 0);
+  const remainingAfterPromo = await calculateP2PTotalTripPrice(pointToPointBook, {
+    discount: promoDiscount,
+  });
 
   if (discountAmount > remainingAfterPromo) {
     throw new ValidationError(

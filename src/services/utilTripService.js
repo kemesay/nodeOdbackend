@@ -400,24 +400,61 @@ async function sideDetourFareOptsFor(pointToPointBookId, airportBookId) {
   };
 }
 
-async function calculateP2PTotalTripPrice(booking) {
+/**
+ * `discount` is optional and defaults to 0, which makes every one of these
+ * three functions behave exactly as they did before a promo discount was
+ * threaded through — every existing caller that doesn't pass one (fare
+ * recalculation, admin manual-discount stacking, Square payment amount
+ * lookups, the various fare-preview routes) is unaffected. Only the actual
+ * booking-creation flow passes a real discount, once it's known (see
+ * calculateP2PSubtotal below for how that discount itself gets computed).
+ */
+async function calculateP2PTotalTripPrice(booking, { discount = 0 } = {}) {
   const hydrated = await ensurePointToPointBookingForFare(booking);
   const opts = await sideDetourFareOptsFor(booking.pointToPointBookId, null);
-  const { total } = calculatePointToPointFare(hydrated, opts);
+  const { total } = calculatePointToPointFare(hydrated, { ...opts, discount });
   return total;
 }
 
-async function calculateHourlyCharterTotalTripPrice(booking) {
+async function calculateHourlyCharterTotalTripPrice(booking, { discount = 0 } = {}) {
   const hydrated = await ensureHourlyCharterBookingForFare(booking);
-  const { total } = calculateHourlyCharterFare(hydrated);
+  const { total } = calculateHourlyCharterFare(hydrated, { discount });
   return total;
 }
 
-async function calculateAirportBookingTotalTripPrice(booking) {
+async function calculateAirportBookingTotalTripPrice(booking, { discount = 0 } = {}) {
   const hydrated = await ensureAirportBookingForFare(booking);
   const opts = await sideDetourFareOptsFor(null, booking.airportBookId);
-  const { total } = calculateAirportFare(hydrated, opts);
+  const { total } = calculateAirportFare(hydrated, { ...opts, discount });
   return total;
+}
+
+/**
+ * The ride's own pre-gratuity, pre-discount subtotal — what a promo code's
+ * percentage/flat amount should be computed against (see
+ * promoCodeService.validatePromoCode's `fareAmount` param), so a discount
+ * never eats into gratuity and gratuity can then be computed on the
+ * discounted subtotal below it (see calculatePointToPointFare's
+ * `discountedLegCarFare`).
+ */
+async function calculateP2PSubtotal(booking) {
+  const hydrated = await ensurePointToPointBookingForFare(booking);
+  const opts = await sideDetourFareOptsFor(booking.pointToPointBookId, null);
+  const { breakdown } = calculatePointToPointFare(hydrated, opts);
+  return breakdown.subtotal;
+}
+
+async function calculateHourlyCharterSubtotal(booking) {
+  const hydrated = await ensureHourlyCharterBookingForFare(booking);
+  const { breakdown } = calculateHourlyCharterFare(hydrated);
+  return breakdown.subtotal;
+}
+
+async function calculateAirportBookingSubtotal(booking) {
+  const hydrated = await ensureAirportBookingForFare(booking);
+  const opts = await sideDetourFareOptsFor(null, booking.airportBookId);
+  const { breakdown } = calculateAirportFare(hydrated, opts);
+  return breakdown.subtotal;
 }
 
 module.exports = {
@@ -425,6 +462,9 @@ module.exports = {
   calculateP2PTotalTripPrice,
   calculateHourlyCharterTotalTripPrice,
   calculateAirportBookingTotalTripPrice,
+  calculateP2PSubtotal,
+  calculateHourlyCharterSubtotal,
+  calculateAirportBookingSubtotal,
   getPaymentDetailByUserId,
 };
 
