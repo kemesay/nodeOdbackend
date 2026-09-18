@@ -252,13 +252,14 @@ async function validatePromoCode({
       throw new ValidationError("You've already used this promo code.");
     }
 
-    // Rolling-window cap, on top of the lifetime cap above — e.g. 5 uses
-    // per person in any trailing 15-day window. Recovers on its own as the
-    // oldest use in the window ages out; no reset date is ever stored.
-    if (promoCode.periodDays && promoCode.maxRedemptionsPerPeriod) {
-      const windowStart = new Date(
-        Date.now() - promoCode.periodDays * 24 * 60 * 60 * 1000
-      );
+    // Cap on top of the lifetime cap above, scoped to this code's OWN
+    // active window rather than a trailing number of days — e.g. 5 uses per
+    // person since this code's Start Date. An admin relaunching this code
+    // for a new occasion (moving startsAt forward) naturally gives every
+    // customer a fresh allowance, without touching the permanent
+    // maxRedemptionsPerUser cap above.
+    if (promoCode.maxRedemptionsPerPeriod) {
+      const windowStart = promoCode.startsAt || new Date(0);
       const usesInPeriod = await PromoCodeRedemption.count({
         where: {
           promoCodeId: promoCode.promoCodeId,
@@ -269,7 +270,7 @@ async function validatePromoCode({
       });
       if (usesInPeriod >= promoCode.maxRedemptionsPerPeriod) {
         throw new ValidationError(
-          `You've used this code ${promoCode.maxRedemptionsPerPeriod} times in the last ${promoCode.periodDays} days. Try again once your next chance opens up.`
+          `You've already used this code ${promoCode.maxRedemptionsPerPeriod} times during this promotion. Try again once a new one opens up.`
         );
       }
     }
@@ -530,10 +531,8 @@ async function getActivePublicPromoForUser(userId) {
     let remaining = promoCode.maxRedemptionsPerUser - priorUses;
     if (remaining <= 0) continue;
 
-    if (promoCode.periodDays && promoCode.maxRedemptionsPerPeriod) {
-      const windowStart = new Date(
-        Date.now() - promoCode.periodDays * 24 * 60 * 60 * 1000
-      );
+    if (promoCode.maxRedemptionsPerPeriod) {
+      const windowStart = promoCode.startsAt || new Date(0);
       const usesInPeriod = await PromoCodeRedemption.count({
         where: {
           promoCodeId: promoCode.promoCodeId,

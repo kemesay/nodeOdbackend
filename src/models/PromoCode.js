@@ -76,15 +76,22 @@ const PromoCode = sequelize.define(
       allowNull: false,
       defaultValue: 1,
     },
-    // Rolling-window cap, on top of (not instead of) maxRedemptionsPerUser —
-    // e.g. periodDays=15, maxRedemptionsPerPeriod=5 means "5 uses per person
-    // in any trailing 15-day window". Both must be set for this to apply;
-    // either alone is ignored. Recovers automatically as old redemptions
-    // age out of the window — no reset date is ever stored.
+    // Legacy rolling-window column — superseded by startsAt-scoped
+    // maxRedemptionsPerPeriod below (kept as a real column, no longer read
+    // or accepted anywhere).
     periodDays: {
       type: DataTypes.INTEGER,
       allowNull: true,
     },
+    // Cap on top of (not instead of) maxRedemptionsPerUser, scoped to this
+    // code's OWN active window (startsAt through now) rather than a fixed
+    // trailing number of days — e.g. maxRedemptionsPerPeriod=5 means "5 uses
+    // per person since this code's Start Date". Since an admin can move
+    // startsAt forward at any time to relaunch this code for a new occasion,
+    // that naturally gives every customer a fresh allowance for the new
+    // period without touching the permanent, all-time maxRedemptionsPerUser
+    // cap. Falls back to "since this code has ever existed" when startsAt is
+    // unset.
     maxRedemptionsPerPeriod: {
       type: DataTypes.INTEGER,
       allowNull: true,
@@ -293,10 +300,11 @@ const validateCreatePromoCode = Joi.object({
   firstRideOnly: Joi.boolean().default(false),
   maxTotalRedemptions: Joi.number().integer().min(1).allow(null),
   maxRedemptionsPerUser: Joi.number().integer().min(1).default(1),
-  // periodDays/maxRedemptionsPerPeriod (the rolling-window cap) are also
-  // real columns, no longer accepted here — maxRedemptionsPerUser alone
-  // covers "how many times one customer can use this code" well enough
-  // that the extra rolling-window concept was more confusing than useful.
+  // On top of (not instead of) maxRedemptionsPerUser — scoped to this code's
+  // own Start Date rather than a fixed trailing window (see the model
+  // comment on maxRedemptionsPerPeriod). periodDays is a real column too,
+  // but stays unaccepted — this field no longer needs a paired day count.
+  maxRedemptionsPerPeriod: Joi.number().integer().min(1).allow(null),
   campaignSource: Joi.string().max(50).allow("", null),
   isActive: Joi.boolean().default(true),
   startsAt: Joi.date().allow(null),
@@ -316,6 +324,7 @@ const validateUpdatePromoCode = Joi.object({
   firstRideOnly: Joi.boolean(),
   maxTotalRedemptions: Joi.number().integer().min(1).allow(null),
   maxRedemptionsPerUser: Joi.number().integer().min(1),
+  maxRedemptionsPerPeriod: Joi.number().integer().min(1).allow(null),
   campaignSource: Joi.string().max(50).allow("", null),
   isActive: Joi.boolean(),
   startsAt: Joi.date().allow(null),
