@@ -222,11 +222,23 @@ async function validatePromoCode({
   if (promoCode.minFareAmount && Number(fareAmount) < Number(promoCode.minFareAmount)) {
     throw new ValidationError(`This promo code requires a minimum fare of $${promoCode.minFareAmount}.`);
   }
-  if (promoCode.type !== "public" && promoCode.ownerUserId === userId) {
-    throw new ValidationError("You can't redeem your own promo code.");
+  // A reward code is minted specifically for the referrer who earned it —
+  // never shared, so nobody else may ever redeem it.
+  if (promoCode.type === "reward" && promoCode.ownerUserId !== userId) {
+    throw new ValidationError("This promo code isn't valid for your account.");
   }
 
-  if (promoCode.firstRideOnly) {
+  // A referral code is meant to be shared with friends, but its OWNER can
+  // now also redeem it on their own bookings — a "use your own invite code"
+  // welcome discount, e.g. for someone who joined by self-signup rather
+  // than an invite link. Self-redemption skips the friend-oriented,
+  // per-code limits below (firstRideOnly, maxRedemptionsPerUser) — those
+  // exist to give each DIFFERENT friend one first-ride discount — and is
+  // gated instead by the shared referral/reward lifetime cap further down,
+  // same as redeeming anyone else's referral/reward code would be.
+  const isOwnReferralCode = promoCode.type === "referral" && promoCode.ownerUserId === userId;
+
+  if (!isOwnReferralCode && promoCode.firstRideOnly) {
     const hasHistory = await hasAnyOtherBooking(
       { userId, guestEmail, guestPhone },
       bookingType,
@@ -240,7 +252,7 @@ async function validatePromoCode({
   // Per-person redemption cap for THIS code — signed-in users are matched by
   // userId, guests by whatever contact info they gave at booking time.
   const identity = identityWhereClause({ userId, guestEmail, guestPhone });
-  if (identity) {
+  if (identity && !isOwnReferralCode) {
     const priorUses = await PromoCodeRedemption.count({
       where: {
         promoCodeId: promoCode.promoCodeId,
@@ -288,7 +300,11 @@ async function validatePromoCode({
   // Lifetime cap on referral/reward codes combined (admin-tunable, see
   // ReferralSettings) — independent of public codes, which are capped
   // per-code instead (maxRedemptionsPerUser/maxRedemptionsPerPeriod above),
-  // not by any cross-code global bucket.
+  // not by any cross-code global bucket. This is also the ONLY cap on
+  // self-redeeming one's own referral code (see isOwnReferralCode above) —
+  // e.g. a self-signed-up user gets up to this many welcome discounts by
+  // using their own code, same bucket as any referral/reward code redeemed
+  // from someone else.
   if (identity && REFERRAL_FAMILY_TYPES.includes(promoCode.type)) {
     const settings = await getReferralSettings();
     const lifetimeCap = settings.maxLifetimeReferralRedemptions;
@@ -347,7 +363,11 @@ async function redeemPromoCode({
   // reward is opened, not whatever it is later when it's credited — the
   // same percent as the referral discount itself, so both sides of a
   // referral are always in sync with one setting.
-  if (promoCode.type === "referral" && promoCode.ownerUserId) {
+  // Excludes the owner redeeming their OWN referral code (see
+  // isOwnReferralCode in validatePromoCode) — that's a welcome discount for
+  // the owner themselves, not a real referral, so it must never mint them a
+  // reward for "referring" themselves.
+  if (promoCode.type === "referral" && promoCode.ownerUserId && promoCode.ownerUserId !== userId) {
     const settings = await getReferralSettings();
     await ReferralReward.create({
       referrerUserId: promoCode.ownerUserId,
