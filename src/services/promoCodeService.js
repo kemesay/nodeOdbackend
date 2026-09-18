@@ -285,31 +285,21 @@ async function validatePromoCode({
     }
   }
 
-  // Lifetime cap — two independent buckets per person: one for public codes,
-  // one for referral/reward codes combined (admin-tunable, see ReferralSettings).
-  if (identity) {
-    const isReferralFamily = REFERRAL_FAMILY_TYPES.includes(promoCode.type);
+  // Lifetime cap on referral/reward codes combined (admin-tunable, see
+  // ReferralSettings) — independent of public codes, which are capped
+  // per-code instead (maxRedemptionsPerUser/maxRedemptionsPerPeriod above),
+  // not by any cross-code global bucket.
+  if (identity && REFERRAL_FAMILY_TYPES.includes(promoCode.type)) {
     const settings = await getReferralSettings();
-    const lifetimeCap = isReferralFamily
-      ? settings.maxLifetimeReferralRedemptions
-      : settings.maxLifetimePublicRedemptions;
+    const lifetimeCap = settings.maxLifetimeReferralRedemptions;
 
     const lifetimeUses = await PromoCodeRedemption.count({
       where: { status: "confirmed", ...identity },
-      include: [
-        {
-          model: PromoCode,
-          where: {
-            type: isReferralFamily ? REFERRAL_FAMILY_TYPES : "public",
-          },
-        },
-      ],
+      include: [{ model: PromoCode, where: { type: REFERRAL_FAMILY_TYPES } }],
     });
     if (lifetimeUses >= lifetimeCap) {
       throw new ValidationError(
-        isReferralFamily
-          ? `You've reached the maximum of ${lifetimeCap} referral/reward promo uses.`
-          : `You've reached the maximum of ${lifetimeCap} promo code uses.`
+        `You've reached the maximum of ${lifetimeCap} referral/reward promo uses.`
       );
     }
   }
@@ -425,9 +415,11 @@ async function creditReferralRewardIfCompleted(bookingType, bookingId) {
 /**
  * Everything a signed-in user would want to see on a "My Rewards" screen:
  * how much they've actually saved so far, how many rewards they've earned
- * by referring others, and how many of their lifetime chances remain in
- * each of the three caps (public codes, referral/reward codes spent,
- * referral rewards earned as a referrer).
+ * by referring others, and how many of their lifetime chances remain on
+ * referral/reward codes spent and referral rewards earned as a referrer.
+ * Public codes have no lifetime bucket of their own anymore — each code
+ * caps itself (maxRedemptionsPerUser/maxRedemptionsPerPeriod) — so that
+ * count is shown uncapped, same as referral rewards earned.
  */
 async function getMyDiscountSummary(userId) {
   const redemptions = await PromoCodeRedemption.findAll({
@@ -464,10 +456,13 @@ async function getMyDiscountSummary(userId) {
 
   return {
     totalSaved: round(totalSaved),
+    // Uncapped — null limit/remaining signals "unlimited" to clients, same
+    // as referralRewardsEarned below. Each public code enforces its own cap
+    // at redemption time; there's no cross-code lifetime bucket anymore.
     publicCodes: {
       used: publicUsed,
-      remaining: Math.max(settings.maxLifetimePublicRedemptions - publicUsed, 0),
-      limit: settings.maxLifetimePublicRedemptions,
+      remaining: null,
+      limit: null,
     },
     referralCodesSpent: {
       used: referralFamilyUsed,
@@ -493,11 +488,10 @@ async function getMyDiscountSummary(userId) {
  * could actually still use right now, for a "current promotion" card on
  * their account page — or null if there isn't one. "Remaining" is THIS
  * customer's own remaining uses (never a global/shared-pool number), the
- * most restrictive of: the code's own per-user cap, its rolling-window cap
- * if it has one, and the account-wide lifetime public-code cap — so it's
- * never wrong in the optimistic direction. Newest active campaign wins when
- * more than one exists; older ones this customer has exhausted are skipped
- * in favor of ones they can still redeem.
+ * most restrictive of the code's own per-user cap and its per-period cap if
+ * it has one — so it's never wrong in the optimistic direction. Newest
+ * active campaign wins when more than one exists; older ones this customer
+ * has exhausted are skipped in favor of ones they can still redeem.
  */
 async function getActivePublicPromoForUser(userId) {
   const now = new Date();
@@ -514,7 +508,6 @@ async function getActivePublicPromoForUser(userId) {
   });
   if (candidates.length === 0) return null;
 
-  const settings = await getReferralSettings();
   const identity = { redeemedByUserId: userId };
 
   for (const promoCode of candidates) {
@@ -544,13 +537,6 @@ async function getActivePublicPromoForUser(userId) {
       remaining = Math.min(remaining, promoCode.maxRedemptionsPerPeriod - usesInPeriod);
       if (remaining <= 0) continue;
     }
-
-    const lifetimePublicUses = await PromoCodeRedemption.count({
-      where: { status: "confirmed", ...identity },
-      include: [{ model: PromoCode, where: { type: "public" } }],
-    });
-    remaining = Math.min(remaining, settings.maxLifetimePublicRedemptions - lifetimePublicUses);
-    if (remaining <= 0) continue;
 
     return {
       code: promoCode.code,

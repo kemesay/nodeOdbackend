@@ -34,15 +34,17 @@ const ReferralSettings = sequelize.define(
       allowNull: false,
       defaultValue: 10,
     },
-    // Lifetime cap on how many PUBLIC (admin/marketing) codes one person can
-    // redeem on their own bookings, ever.
+    // Legacy global lifetime cap on PUBLIC (admin/marketing) codes — superseded
+    // by each public code's own maxRedemptionsPerUser/maxRedemptionsPerPeriod
+    // (see PromoCode.js), which already cover "how many times one customer
+    // can use THIS code". Kept as a real column, no longer read anywhere.
     maxLifetimePublicRedemptions: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 5,
     },
     // Lifetime cap on how many REFERRAL/REWARD codes one person can redeem
-    // on their own bookings, ever — a separate bucket from the public cap
+    // on their own bookings, ever — independent of the per-code public caps
     // above, so spending one never crowds out the other.
     maxLifetimeReferralRedemptions: {
       type: DataTypes.INTEGER,
@@ -57,10 +59,13 @@ const ReferralSettings = sequelize.define(
   }
 );
 
-/** Admin updating one or more settings — all optional, but at least one required. */
+/**
+ * Admin updating one or more settings — all optional, but at least one
+ * required. maxLifetimePublicRedemptions is a real column but no longer
+ * accepted here — public codes are capped per-code now (see PromoCode.js).
+ */
 const validateUpdateReferralSettings = Joi.object({
   referralDiscountPercent: Joi.number().min(0.01).max(100),
-  maxLifetimePublicRedemptions: Joi.number().integer().min(0),
   maxLifetimeReferralRedemptions: Joi.number().integer().min(0),
 }).min(1);
 
