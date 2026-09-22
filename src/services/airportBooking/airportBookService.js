@@ -396,6 +396,8 @@ const {
   calculateAirportBookingTotalTripPrice,
   calculateAirportBookingSubtotal,
 } = require("../utilTripService");
+const { sideDetourFeeFor } = require("../../utils/bookingFareCalculator.js");
+const { getSideDetourSettings } = require("../sideDetourSettingsService.js");
 
 const { bookingNotification, bookingUpdateNotification } = require("../../utils/emailSender");
 const generateConfirmationNumber = require("../bookingUtils.js");
@@ -943,6 +945,26 @@ async function getAirportBookById(airportBookId) {
     throw new ResourceNotFoundError(
       `Airport Book with ID ${airportBookId} not found`
     );
+
+  // Side detour fee isn't its own persisted column (see SideDetourSettings) —
+  // computed here, best-effort, from the stops actually on this booking and
+  // the CURRENT admin setting, same approximation the confirmation email
+  // already makes. Set as a plain (undeclared) data value so it round-trips
+  // through res.json() without becoming a real, persisted model attribute —
+  // it's display-only and never written back on .save().
+  if (airportBook.SidePickDetours?.length > 0) {
+    const settings = await getSideDetourSettings();
+    airportBook.setDataValue(
+      "sideDetourFee",
+      sideDetourFeeFor(airportBook, {
+        sideDetourCount: airportBook.SidePickDetours.length,
+        sideDetourSettings: settings,
+      })
+    );
+  } else {
+    airportBook.setDataValue("sideDetourFee", 0);
+  }
+
   return airportBook;
 }
 

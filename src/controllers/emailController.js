@@ -1,14 +1,17 @@
 const nodemailer = require('nodemailer');
 const { getEmailAssets } = require('../config/emailAssets');
 
-// Create transporter using cPanel email settings
+// Sourced from .env (see EMAIL_* keys in src/utils/emailSender.js) instead of
+// hardcoded — this used to keep its own separate copy of the SMTP
+// credentials, so rotating the password there never actually fixed the
+// contact form, which kept authenticating with the stale one baked in here.
 const transporter = nodemailer.createTransport({
-    host: "mail.odatransportation.com",
-    port: 465,
-    secure: true, // true for 465, false for other ports
+    host: process.env.EMAIL_HOST,
+    port: Number(process.env.EMAIL_PORT) || 465,
+    secure: (process.env.EMAIL_SECURE ?? "true") === "true",
     auth: {
-        user: "bookingnotification@odatransportation.com",
-        pass: "yvVrFT@K[1I#",
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASSWORD,
     },
 });
 

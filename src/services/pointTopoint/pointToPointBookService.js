@@ -330,6 +330,8 @@ const {
 const { SidePickDetour } = require("../../models/booking/SidePickDetour.js");
 
 const { calculateP2PTotalTripPrice, calculateP2PSubtotal } = require("../utilTripService.js");
+const { sideDetourFeeFor } = require("../../utils/bookingFareCalculator.js");
+const { getSideDetourSettings } = require("../sideDetourSettingsService.js");
 const generateConfirmationNumber = require("../bookingUtils.js");
 const { signBookingRoomToken } = require("../../realtime/socketRoomToken.js");
 const { AirportBook } = require("../../models/airportBooking/AirportBook.js");
@@ -780,6 +782,26 @@ async function getPointToPointBookById(pointToPointBookId) {
     throw new ResourceNotFoundError(
       `Point To Point Book with ID ${pointToPointBookId} not found`
     );
+
+  // Side detour fee isn't its own persisted column (see SideDetourSettings) —
+  // computed here, best-effort, from the stops actually on this booking and
+  // the CURRENT admin setting, same approximation the confirmation email
+  // already makes. Set as a plain (undeclared) data value so it round-trips
+  // through res.json() without becoming a real, persisted model attribute —
+  // it's display-only and never written back on .save().
+  if (pointToPointBook.SidePickDetours?.length > 0) {
+    const settings = await getSideDetourSettings();
+    pointToPointBook.setDataValue(
+      "sideDetourFee",
+      sideDetourFeeFor(pointToPointBook, {
+        sideDetourCount: pointToPointBook.SidePickDetours.length,
+        sideDetourSettings: settings,
+      })
+    );
+  } else {
+    pointToPointBook.setDataValue("sideDetourFee", 0);
+  }
+
   return pointToPointBook;
 }
 

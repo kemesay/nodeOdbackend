@@ -76,14 +76,39 @@
           <p><strong>Booking Type:</strong>
             <%= bookingType %>
           </p>
-          <p><strong>Total Trip Fee:</strong> $<%= totalTripFee %>
-          </p>
           <p><strong>Pickup Location:</strong>
             <%= pickupLocation %>
           </p>
           <p><strong>Pickup Date:</strong>
             <%= pickupDate %>
           </p>
+
+          <% if (typeof fareDetails !== 'undefined' && Object.keys(fareDetails).length > 0) { %>
+          <h3 style="color: white; background-color: black; padding: 5px">
+            Fare Details:
+          </h3>
+          <table cellspacing="0" cellpadding="5" style="border-collapse: collapse">
+            <tbody>
+              <% Object.entries(fareDetails).forEach(([key, value]) => { %>
+              <tr>
+                <td style="border: none"><%= key %></td>
+                <td style="border: none"><%= value %></td>
+              </tr>
+              <% }); %>
+              <tr>
+                <td style="border: none; font-weight: bold; background-color: gray">
+                  Total Trip Fee
+                </td>
+                <td style="border: none; font-weight: bold; background-color: gray; font-size: 1.2em">
+                  $<%= totalTripFee %>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <% } else { %>
+          <p><strong>Total Trip Fee:</strong> $<%= totalTripFee %>
+          </p>
+          <% } %>
 
           <p>Thank you for your payment. We look forward to serving you.</p>
           <p>

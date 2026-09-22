@@ -314,9 +314,19 @@ const smtpConfig = {
   secure: (process.env.EMAIL_SECURE ?? "true") === "true", // true for 465, false for other ports
   auth: {
     user: process.env.EMAIL_USER || "bookingnotification@odatransportation.com",
-    pass: process.env.EMAIL_PASSWORD || "yvVrFT@K[1I#",
+    pass: process.env.EMAIL_PASSWORD,
   },
 };
+
+/**
+ * One-off SMTP auth/connectivity check, run at boot (see src/app.js) so a bad
+ * credential or hostname shows up loudly in the startup logs instead of
+ * silently in `logs/logs.log` the next time a real email tries to send.
+ */
+async function verifyEmailTransport() {
+  const transporter = nodemailer.createTransport(smtpConfig);
+  await transporter.verify();
+}
 
 async function sendBookingApprovalEmail(data, action, userEmail) {
   const transporter = nodemailer.createTransport(smtpConfig);
@@ -582,4 +592,5 @@ module.exports = {
   bookingNotification,
   bookingUpdateNotification,
   paymentNotification,
+  verifyEmailTransport,
 };

@@ -8,6 +8,7 @@ const logger = require("./config/logging.js"); // sets up the shared logger + as
 const routes = require("./startUp/routes.js");
 const { connectToDatabase } = require("./config/database.js");
 const { initSocket } = require("./realtime/socket.js");
+const { verifyEmailTransport } = require("./utils/emailSender.js");
 
 const app = express();
 
@@ -40,6 +41,13 @@ connectToDatabase().then(() => {
   server.listen(port, () => {
     console.log(`Listening on port ${port}...`);
   });
+
+  // Best-effort SMTP check — never blocks startup on a flaky mail server,
+  // just surfaces a bad credential/hostname immediately instead of only
+  // when the first real booking/reset email silently fails later.
+  verifyEmailTransport()
+    .then(() => console.log("Email transport verified."))
+    .catch((error) => logger.error(`Email transport verification failed: ${error.message}`));
 });
 
 module.exports = server;

@@ -368,6 +368,22 @@ async function sendPaymentStatusUpdateEmailService(booking, bookingType) {
   const passengerFullName = booking.passengerFullName;
   const pickupDateTime = formatDateTime(booking.pickupDateTime);
 
+  // Same line-item breakdown (incl. Side Detour Fee when it applies) as the
+  // accepted-booking email above, so "how much, for what" reads the same
+  // regardless of which notification the customer got it from.
+  let fareDetails = {};
+  try {
+    if (isP2PPaymentBookingType(bookingType) || bookingType === "P2P") {
+      ({ fareDetails } = getP2PReservationDetails("Point to point", booking));
+    } else if (isHourlyPaymentBookingType(bookingType) || bookingType === "HOURLY_CHARTER") {
+      ({ fareDetails } = getHourlyCharterDetails("Hourly Charter", booking));
+    } else if (isAirportPaymentBookingType(bookingType) || bookingType === "AIRPORT") {
+      ({ fareDetails } = getAirportServiceDetails("Airport Service", booking));
+    }
+  } catch (error) {
+    console.error("Error getting fare details for payment accepted email:", error);
+  }
+
   const data = {
     bookingType: bookingTypeFullName,
     name: passengerFullName,
@@ -375,6 +391,7 @@ async function sendPaymentStatusUpdateEmailService(booking, bookingType) {
     totalTripFee: Number(booking.totalTripFeeInDollars).toFixed(2),
     pickupLocation,
     pickupDate: `${pickupDateTime.date} at ${pickupDateTime.time}`,
+    fareDetails,
   };
 
   await paymentNotification(userEmail, data);

@@ -399,7 +399,13 @@ function quoteFare({
     const extras = roundMoney(asMoney(extraOptionsPerLeg));
     const subtotal = roundMoney(legCar + extras);
     const gratuity = gratuityOnCarFare(legCar, gratuityPercentage, tripType);
-    return { total: roundMoney(subtotal + gratuity), legCarFare: legCar, gratuity };
+    return {
+      total: roundMoney(subtotal + gratuity),
+      legCarFare: legCar,
+      extraOptionsPrice: extras,
+      subtotal,
+      gratuity,
+    };
   }
 
   const legCar = legCarFareFromCar(car, {
@@ -408,11 +414,14 @@ function quoteFare({
   });
   const carFare = roundMoney(legCar * (roundTrip ? 2 : 1));
   const extras = roundMoney(asMoney(extraOptionsPerLeg) * (roundTrip ? 2 : 1));
+  const resolvedAdditionalStopPrice = roundMoney(asMoney(additionalStopPrice));
+  const resolvedAirportPickupPreferencePrice = roundMoney(asMoney(airportPickupPreferencePrice));
+  const resolvedSideDetourFee = roundMoney(asMoney(sideDetourFee));
   const subtotal = roundMoney(
     carFare +
-      asMoney(additionalStopPrice) +
-      asMoney(airportPickupPreferencePrice) +
-      asMoney(sideDetourFee) +
+      resolvedAdditionalStopPrice +
+      resolvedAirportPickupPreferencePrice +
+      resolvedSideDetourFee +
       extras
   );
   const gratuity = gratuityOnCarFare(legCar, gratuityPercentage, tripType);
@@ -420,6 +429,11 @@ function quoteFare({
     total: roundMoney(subtotal + gratuity),
     legCarFare: legCar,
     carFare,
+    additionalStopPrice: resolvedAdditionalStopPrice,
+    airportPickupPreferencePrice: resolvedAirportPickupPreferencePrice,
+    sideDetourFee: resolvedSideDetourFee,
+    extraOptionsPrice: extras,
+    subtotal,
     gratuity,
   };
 }
