@@ -329,9 +329,12 @@ const {
 
 const { bookingNotification, bookingUpdateNotification } = require("../../utils/emailSender");
 const generateConfirmationNumber = require("../bookingUtils.js");
+const logger = require("../../config/logging.js");
 const {
   validatePromoCode,
   redeemPromoCode,
+  updateBookingPromoCode,
+  getAppliedPromoCodeForBooking,
   creditReferralRewardIfCompleted,
 } = require("../promoCodeService.js");
 
@@ -541,20 +544,33 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
         if (!hourlyCharterBook.userId || Number(hourlyCharterBook.userId) !== Number(userId)) {
           throw new ResourceNotFoundError("Booking not found.");
         }
-        const lockedStatuses = new Set([
-          "ACCEPTED",
-          "REJECTED",
-          "CANCELLED",
-          "COMPLETED",
-          "PICKUP_COMPLETED",
-          "RETURN_PICKUP_COMPLETED",
-        ]);
-        if (lockedStatuses.has(hourlyCharterBook.bookingStatus)) {
-          throw new ValidationError("This booking can no longer be updated.");
+        // A booking is only ever locked from customer self-service editing
+        // once it's fully done AND paid — a trip that's already completed
+        // but still owes money (e.g. cash due, or a failed/declined charge)
+        // stays editable so the customer has a way to fix the payment
+        // method. Every other status (ACCEPTED, EN_ROUTE, even
+        // CANCELLED/REJECTED) is intentionally still editable — this
+        // replaces a much longer locked-status list that blocked edits far
+        // earlier in the lifecycle than the business actually needed.
+        if (
+          hourlyCharterBook.bookingStatus === "COMPLETED" &&
+          hourlyCharterBook.paymentStatus === "PAID"
+        ) {
+          throw new ValidationError(
+            "This booking is completed and paid, and can no longer be updated."
+          );
         }
       }
 
-      const { extraOptions, square, squareCardId, ...data } = updatedData || {};
+      const promoCodeTouched = Object.prototype.hasOwnProperty.call(updatedData || {}, "promoCode");
+      const {
+        extraOptions,
+        promoCode: promoCodeUpdate,
+        square,
+        squareCardId,
+        paymentDetailId: paymentDetailIdUpdate,
+        ...data
+      } = updatedData || {};
       if (Array.isArray(extraOptions)) {
         await HourlyCharterBookExtraOption.destroy({ where: { hourlyCharterBookId } });
         const validExtraOptions = extraOptions.filter(
@@ -585,15 +601,43 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       await hourlyCharterBook.update(data);
 
       const reloaded = await getHourlyCharterBookById(hourlyCharterBook.hourlyCharterBookId);
-      const totalTripFee = await calculateHourlyCharterTotalTripPrice(reloaded);
+
+      // Carries forward whatever discount this booking already had (frozen
+      // at creation, or from an earlier update) into this recompute by
+      // default — otherwise ANY unrelated edit here (new car, new extras,
+      // ...) would silently zero out an already-applied promo discount,
+      // since the fare calculator only ever applies the discount it's
+      // explicitly given.
+      let discountAmount = Number(reloaded.promoDiscountAmountInDollars) || 0;
+      if (promoCodeTouched) {
+        const subtotal = await calculateHourlyCharterSubtotal(reloaded);
+        const result = await updateBookingPromoCode({
+          code: promoCodeUpdate,
+          userId,
+          guestEmail: reloaded.passengerEmail,
+          guestPhone: reloaded.passengerCellPhone,
+          bookingType: "Hourly Charter",
+          bookingId: reloaded.hourlyCharterBookId,
+          fareAmount: subtotal,
+        });
+        discountAmount = result.discountAmount;
+        reloaded.promoDiscountAmountInDollars = discountAmount;
+        reloaded.hasDiscountApplied = discountAmount > 0;
+      }
+
+      const totalTripFee = await calculateHourlyCharterTotalTripPrice(reloaded, { discount: discountAmount });
       reloaded.totalTripFeeInDollars = totalTripFee;
       await reloaded.save();
       const finalBook = await getHourlyCharterBookById(hourlyCharterBook.hourlyCharterBookId);
       const newTotal = Number(finalBook.totalTripFeeInDollars);
+      // A customer switching cards sends `square` (a fresh nonce) or
+      // `squareCardId` (a different saved card) with no fare change at all —
+      // reconciliation must still run in that case, not just on a fare delta.
+      const paymentMethodTouched = Boolean(square?.sourceId) || Boolean(squareCardId);
       if (
         previousTotal > 0 &&
         newTotal > 0 &&
-        Math.abs(previousTotal - newTotal) > 0.009
+        (Math.abs(previousTotal - newTotal) > 0.009 || paymentMethodTouched)
       ) {
         const paymentUpdate = await reconcilePaymentOnBookingUpdate({
           bookingType: "HOURLY",
@@ -601,13 +645,21 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
           confirmationNumber: finalBook.confirmationNumber,
           newAmountDollars: newTotal,
           paymentMethod: finalBook.paymentMethod,
-          paymentDetailId: finalBook.paymentDetailId,
+          paymentDetailId: paymentDetailIdUpdate ?? finalBook.paymentDetailId,
           userId: finalBook.userId,
           square,
           squareCardId,
         });
-        if (paymentUpdate?.paymentStatus) {
-          finalBook.paymentStatus = paymentUpdate.paymentStatus;
+        if (paymentUpdate) {
+          if (paymentUpdate.paymentDetail) {
+            await finalBook.setPaymentDetail(paymentUpdate.paymentDetail);
+          }
+          if (paymentMethodTouched && paymentUpdate.paymentMethod) {
+            finalBook.paymentMethod = paymentUpdate.paymentMethod;
+          }
+          if (paymentUpdate.paymentStatus) {
+            finalBook.paymentStatus = paymentUpdate.paymentStatus;
+          }
           await finalBook.save();
         }
       }
@@ -760,6 +812,20 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
         throw new ResourceNotFoundError(
           `Hourly Charter Book with ID ${hourlyCharterBookId} not found`
         );
+
+      // Not its own column — sourced from the confirmed PromoCodeRedemption
+      // row for this booking, display-only. Skipped entirely when there's
+      // no discount at all, to avoid a redemption lookup on every fetch.
+      hourlyCharterBook.setDataValue(
+        "appliedPromoCode",
+        hourlyCharterBook.hasDiscountApplied
+          ? await getAppliedPromoCodeForBooking(
+              hourlyCharterBook.hourlyCharterBookId,
+              "Hourly Charter"
+            )
+          : null
+      );
+
       return hourlyCharterBook;
     }
 
@@ -899,16 +965,43 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       await booking.save();
 
       if (finalTotal !== previousTotal) {
+        // Cancels/refunds the original authorization and opens a fresh
+        // charge for the actual final total (base + overtime) — same
+        // reconcile-on-change path updateHourlyCharterBookForUser uses.
+        // This used to pass previousTotal/newTotal (not this function's real
+        // param names) and swallow every error silently, so the old charge
+        // got cancelled/refunded here but the recharge for the true final
+        // total silently never happened — the customer kept their refund
+        // and was never billed for the completed trip. If the recharge
+        // still fails (e.g. the saved card was declined), the trip stays
+        // COMPLETED (it already happened) but paymentStatus is set back to
+        // AWAITING_PAYMENT and this is logged loudly so it surfaces for
+        // manual follow-up instead of disappearing.
         try {
-          await reconcilePaymentOnBookingUpdate({
+          const paymentUpdate = await reconcilePaymentOnBookingUpdate({
             bookingType: "HOURLY",
             bookingId: booking.hourlyCharterBookId,
-            previousTotal,
-            newTotal: finalTotal,
+            confirmationNumber: booking.confirmationNumber,
+            newAmountDollars: finalTotal,
+            paymentMethod: booking.paymentMethod,
             paymentDetailId: booking.paymentDetailId,
             squareCardId: booking.squareCardId,
+            userId: booking.userId,
           });
-        } catch (_) {}
+          if (paymentUpdate?.paymentStatus) {
+            booking.paymentStatus = paymentUpdate.paymentStatus;
+            await booking.save();
+          }
+        } catch (error) {
+          booking.paymentStatus = "AWAITING_PAYMENT";
+          await booking.save();
+          logger.error(
+            `Failed to recharge hourly charter booking ${booking.confirmationNumber} ` +
+              `(id ${booking.hourlyCharterBookId}) for its final total of $${finalTotal} ` +
+              `after ending the live trip: ${error.message}. Original payment was already ` +
+              `cancelled/refunded — this booking needs manual payment collection.`
+          );
+        }
       }
 
       return await getHourlyCharterBookById(hourlyCharterBookId);

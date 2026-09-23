@@ -21,7 +21,8 @@
     "db:side-detour-settings-table": "node scripts/ensure-side-detour-settings-table.js",
     "db:backfill-referral-codes": "node scripts/backfill-referral-codes.js",
     "db:reset-referral-codes": "node scripts/reset-referral-codes-to-short-format.js",
-    "db:rename-reward-amount-to-percent": "node scripts/rename-reward-amount-to-percent.js"
+    "db:rename-reward-amount-to-percent": "node scripts/rename-reward-amount-to-percent.js",
+    "db:uppercase-promo-codes": "node scripts/uppercase-existing-promo-codes.js"
   },
   "keywords": [],
   "author": "",

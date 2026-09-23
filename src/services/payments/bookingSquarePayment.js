@@ -427,18 +427,33 @@ async function reconcilePaymentOnBookingUpdate({
     return null;
   }
 
-  return processBookingPayment({
+  // The card to charge here is whatever the update ACTUALLY supplied, not
+  // necessarily the booking's original `paymentMethod` — a customer
+  // switching from a saved card to a fresh one (or vice versa) sends the new
+  // card's fields, and trusting the stored method would ignore them (e.g.
+  // demanding square.sourceId on a booking that was originally
+  // SQUARE_SAVED_CARD, even though the customer just supplied a brand-new
+  // squareCardId, or the reverse).
+  const effectivePaymentMethod = square?.sourceId
+    ? "SQUARE_NEW_CARD"
+    : squareCardId
+    ? "SQUARE_SAVED_CARD"
+    : paymentMethod || "SQUARE_SAVED_CARD";
+
+  const result = await processBookingPayment({
     bookingType,
     bookingId,
     confirmationNumber,
     amountDollars: newAmountDollars,
-    paymentMethod: paymentMethod || "SQUARE_SAVED_CARD",
+    paymentMethod: effectivePaymentMethod,
     square,
     squareCardId,
     paymentDetailId,
     userId,
     isGuestBooking: false,
   });
+
+  return { ...result, paymentMethod: effectivePaymentMethod };
 }
 
 async function handleAdminBookingPayment({

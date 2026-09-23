@@ -32,33 +32,13 @@ if (!dbConfig.host || !dbConfig.username || !dbConfig.database) {
   );
 }
 
-// const sequelize = new Sequelize({
-//   dialect: "mysql",
-//   host: dbConfig.host,
-//   port: dbConfig.port,
-//   username: dbConfig.username,
-//   database: dbConfig.database,
-//   password: dbConfig.password,
-//   logging: false,
-//   pool: {
-//     max: 20,
-//     min: 2,
-//     idle: 10000,
-//     acquire: 30000,
-//   },
-//   dialectOptions: {
-//     // Remote host does not offer TLS; MariaDB/MySQL client defaults require SSL.
-//     ssl: (process.env.DB_SSL || "false").toLowerCase() === "true",
-//   },
-// });
-
 const sequelize = new Sequelize({
-  dialect: "postgres",
-  host: "127.0.0.1" || "192.249.113.151",
-  port: 5432,
-  username: "postgres",
-  database: "oda_transportation",
-  password: "postgres123",
+  dialect: "mysql",
+  host: dbConfig.host,
+  port: dbConfig.port,
+  username: dbConfig.username,
+  database: dbConfig.database,
+  password: dbConfig.password,
   logging: false,
   pool: {
     max: 20,
@@ -66,7 +46,27 @@ const sequelize = new Sequelize({
     idle: 10000,
     acquire: 30000,
   },
+  dialectOptions: {
+    // Remote host does not offer TLS; MariaDB/MySQL client defaults require SSL.
+    ssl: (process.env.DB_SSL || "false").toLowerCase() === "true",
+  },
 });
+
+// const sequelize = new Sequelize({
+//   dialect: "postgres",
+//   host: "127.0.0.1" || "192.249.113.151",
+//   port: 5432,
+//   username: "postgres",
+//   database: "oda_transportation",
+//   password: "postgres123",
+//   logging: false,
+//   pool: {
+//     max: 20,
+//     min: 2,
+//     idle: 10000,
+//     acquire: 30000,
+//   },
+// });
 
 async function connectToDatabase() {
   try {

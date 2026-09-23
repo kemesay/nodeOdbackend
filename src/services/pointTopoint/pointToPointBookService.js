@@ -338,6 +338,8 @@ const { AirportBook } = require("../../models/airportBooking/AirportBook.js");
 const {
   validatePromoCode,
   redeemPromoCode,
+  updateBookingPromoCode,
+  getAppliedPromoCodeForBooking,
   creditReferralRewardIfCompleted,
 } = require("../promoCodeService.js");
 
@@ -531,20 +533,34 @@ async function updatePointToPointBookForUser(pointToPointBookId, userId, updated
     if (!pointToPointBook.userId || Number(pointToPointBook.userId) !== Number(userId)) {
       throw new ResourceNotFoundError("Booking not found.");
     }
-    const lockedStatuses = new Set([
-      "ACCEPTED",
-      "REJECTED",
-      "CANCELLED",
-      "COMPLETED",
-      "PICKUP_COMPLETED",
-      "RETURN_PICKUP_COMPLETED",
-    ]);
-    if (lockedStatuses.has(pointToPointBook.bookingStatus)) {
-      throw new ValidationError("This booking can no longer be updated.");
+    // A booking is only ever locked from customer self-service editing once
+    // it's fully done AND paid — a trip that's already completed but still
+    // owes money (e.g. cash due, or a failed/declined charge) stays editable
+    // so the customer has a way to fix the payment method. Every other
+    // status (ACCEPTED, EN_ROUTE, even CANCELLED/REJECTED) is intentionally
+    // still editable — this replaces a much longer locked-status list that
+    // blocked edits far earlier in the lifecycle than the business actually
+    // needed.
+    if (
+      pointToPointBook.bookingStatus === "COMPLETED" &&
+      pointToPointBook.paymentStatus === "PAID"
+    ) {
+      throw new ValidationError(
+        "This booking is completed and paid, and can no longer be updated."
+      );
     }
   }
 
-  const { extraOptions, sidePicks: sidePicksUpdate, square, squareCardId, ...data } = updatedData || {};
+  const promoCodeTouched = Object.prototype.hasOwnProperty.call(updatedData || {}, "promoCode");
+  const {
+    extraOptions,
+    sidePicks: sidePicksUpdate,
+    promoCode: promoCodeUpdate,
+    square,
+    squareCardId,
+    paymentDetailId: paymentDetailIdUpdate,
+    ...data
+  } = updatedData || {};
   if (Array.isArray(extraOptions)) {
     await PointToPointBookExtraOption.destroy({ where: { pointToPointBookId } });
     const validExtraOptions = extraOptions.filter(
@@ -591,15 +607,42 @@ async function updatePointToPointBookForUser(pointToPointBookId, userId, updated
   await pointToPointBook.update(data);
 
   const reloaded = await getPointToPointBookById(pointToPointBook.pointToPointBookId);
-  const totalTripFee = await calculateP2PTotalTripPrice(reloaded);
+
+  // Carries forward whatever discount this booking already had (frozen at
+  // creation, or from an earlier update) into this recompute by default —
+  // otherwise ANY unrelated edit here (new car, new extras, ...) would
+  // silently zero out an already-applied promo discount, since the fare
+  // calculator only ever applies the discount it's explicitly given.
+  let discountAmount = Number(reloaded.promoDiscountAmountInDollars) || 0;
+  if (promoCodeTouched) {
+    const subtotal = await calculateP2PSubtotal(reloaded);
+    const result = await updateBookingPromoCode({
+      code: promoCodeUpdate,
+      userId,
+      guestEmail: reloaded.passengerEmail,
+      guestPhone: reloaded.passengerCellPhone,
+      bookingType: "Point to point",
+      bookingId: reloaded.pointToPointBookId,
+      fareAmount: subtotal,
+    });
+    discountAmount = result.discountAmount;
+    reloaded.promoDiscountAmountInDollars = discountAmount;
+    reloaded.hasDiscountApplied = discountAmount > 0;
+  }
+
+  const totalTripFee = await calculateP2PTotalTripPrice(reloaded, { discount: discountAmount });
   reloaded.totalTripFeeInDollars = totalTripFee;
   await reloaded.save();
   const finalBook = await getPointToPointBookById(pointToPointBook.pointToPointBookId);
   const newTotal = Number(finalBook.totalTripFeeInDollars);
+  // A customer switching cards sends `square` (a fresh nonce) or
+  // `squareCardId` (a different saved card) with no fare change at all —
+  // reconciliation must still run in that case, not just on a fare delta.
+  const paymentMethodTouched = Boolean(square?.sourceId) || Boolean(squareCardId);
   if (
     previousTotal > 0 &&
     newTotal > 0 &&
-    Math.abs(previousTotal - newTotal) > 0.009
+    (Math.abs(previousTotal - newTotal) > 0.009 || paymentMethodTouched)
   ) {
     const paymentUpdate = await reconcilePaymentOnBookingUpdate({
       bookingType: "P2P",
@@ -607,13 +650,21 @@ async function updatePointToPointBookForUser(pointToPointBookId, userId, updated
       confirmationNumber: finalBook.confirmationNumber,
       newAmountDollars: newTotal,
       paymentMethod: finalBook.paymentMethod,
-      paymentDetailId: finalBook.paymentDetailId,
+      paymentDetailId: paymentDetailIdUpdate ?? finalBook.paymentDetailId,
       userId: finalBook.userId,
       square,
       squareCardId,
     });
-    if (paymentUpdate?.paymentStatus) {
-      finalBook.paymentStatus = paymentUpdate.paymentStatus;
+    if (paymentUpdate) {
+      if (paymentUpdate.paymentDetail) {
+        await finalBook.setPaymentDetail(paymentUpdate.paymentDetail);
+      }
+      if (paymentMethodTouched && paymentUpdate.paymentMethod) {
+        finalBook.paymentMethod = paymentUpdate.paymentMethod;
+      }
+      if (paymentUpdate.paymentStatus) {
+        finalBook.paymentStatus = paymentUpdate.paymentStatus;
+      }
       await finalBook.save();
     }
   }
@@ -801,6 +852,17 @@ async function getPointToPointBookById(pointToPointBookId) {
   } else {
     pointToPointBook.setDataValue("sideDetourFee", 0);
   }
+
+  // Same reasoning as sideDetourFee above — not its own column, sourced
+  // from the confirmed PromoCodeRedemption row for this booking, display-only.
+  // Skipped entirely when there's no discount at all, to avoid a redemption
+  // lookup on every single booking fetch.
+  pointToPointBook.setDataValue(
+    "appliedPromoCode",
+    pointToPointBook.hasDiscountApplied
+      ? await getAppliedPromoCodeForBooking(pointToPointBook.pointToPointBookId, "Point to point")
+      : null
+  );
 
   return pointToPointBook;
 }

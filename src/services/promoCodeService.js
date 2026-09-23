@@ -86,20 +86,23 @@ const BOOKING_PK = {
  * hash (not the raw userId) so nobody can enumerate every referral code in
  * the system by counting up; deterministic so the same user always gets
  * the same code back rather than a new random one on every call.
+ *
+ * Uppercase throughout — the one canonical case for every code in the
+ * system, public or auto-generated alike (see the comment on
+ * promoCodeSchema in models/PromoCode.js for why).
  */
 function generateReferralCode(firstName, userId) {
   const cleanName = String(firstName || "us")
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-zA-Z]/g, "")
-    .toLowerCase()
-    .slice(0, 2) || "us";
+    .toUpperCase()
+    .slice(0, 2) || "US";
 
   const secret = process.env.REFERRAL_CODE_SECRET || process.env.JWT_PRIVATE_KEY || "oda-referral";
   const hash = crypto.createHmac("sha256", secret).update(String(userId)).digest("hex");
-  // BigInt#toString(36) is already lowercase a-z by spec — no case
-  // conversion needed for the suffix.
-  const suffix = BigInt("0x" + hash.slice(0, 10)).toString(36).slice(0, 5);
+  // BigInt#toString(36) is lowercase a-z by spec — uppercased explicitly.
+  const suffix = BigInt("0x" + hash.slice(0, 10)).toString(36).slice(0, 5).toUpperCase();
 
   return `${cleanName}${suffix}`;
 }
@@ -199,7 +202,7 @@ async function validatePromoCode({
   fareAmount,
   bookingId,
 }) {
-  const normalizedCode = String(code || "").trim().toLowerCase();
+  const normalizedCode = String(code || "").trim().toUpperCase();
   const promoCode = await PromoCode.findOne({ where: { code: normalizedCode } });
 
   if (!promoCode || !promoCode.isActive) {
@@ -383,6 +386,101 @@ async function redeemPromoCode({
   }
 
   return redemption;
+}
+
+/**
+ * Self-service: add, change, or remove the promo code applied to a booking
+ * that already exists (as opposed to at creation time). Re-validates the
+ * code against the booking's CURRENT subtotal (its fare may have changed
+ * since creation) and against the exact same per-code/per-user/lifetime
+ * caps a fresh booking would face — reapplying a code isn't a loophole
+ * around those.
+ *
+ * Whatever redemption this booking already had (if any) is reversed first,
+ * so it stops counting against caps and a same-code no-op re-application
+ * never gets wrongly blocked by "you've already used this code." If the
+ * reversed redemption was a referral/reward code, its still-pending
+ * referral reward is denied too — the friend's booking that would have
+ * earned it no longer carries that code, so it must not still pay out.
+ *
+ * Returns `{ discountAmount }` (0 when `code` is empty/null, i.e. "remove
+ * the promo code") for the caller to fold into its own fare recompute —
+ * this function only touches promo-code bookkeeping, never the booking's
+ * own fare columns or its Square payment (those differ per booking type
+ * and are the caller's responsibility).
+ */
+async function updateBookingPromoCode({
+  code,
+  userId,
+  guestEmail,
+  guestPhone,
+  bookingType,
+  bookingId,
+  fareAmount,
+}) {
+  const existing = await PromoCodeRedemption.findOne({
+    where: { bookingId, bookingType, status: "confirmed" },
+    include: [{ model: PromoCode }],
+  });
+  if (existing) {
+    existing.status = "reversed";
+    await existing.save();
+    if (existing.PromoCode?.type === "referral") {
+      await ReferralReward.update(
+        { rewardStatus: "denied" },
+        {
+          where: {
+            triggeringBookingId: bookingId,
+            triggeringBookingType: bookingType,
+            rewardStatus: "pending",
+          },
+        }
+      );
+    }
+  }
+
+  const trimmed = String(code || "").trim();
+  if (!trimmed) {
+    return { discountAmount: 0 };
+  }
+
+  const { promoCode, discount } = await validatePromoCode({
+    code: trimmed,
+    userId,
+    guestEmail,
+    guestPhone,
+    bookingType,
+    fareAmount,
+    bookingId,
+  });
+
+  await redeemPromoCode({
+    promoCode,
+    userId,
+    guestEmail,
+    guestPhone,
+    bookingId,
+    bookingType,
+    discountApplied: discount,
+  });
+
+  return { discountAmount: discount };
+}
+
+/**
+ * The promo code currently applied to a booking, if any — for display only
+ * (e.g. the update-booking screen showing "WELCOME10 applied" instead of
+ * just a bare discount amount). Not persisted on the booking itself; the
+ * confirmed `PromoCodeRedemption` row for this booking is the source of
+ * truth for which code, exactly like the discount amount is sourced from it
+ * at redemption time.
+ */
+async function getAppliedPromoCodeForBooking(bookingId, bookingType) {
+  const redemption = await PromoCodeRedemption.findOne({
+    where: { bookingId, bookingType, status: "confirmed" },
+    include: [{ model: PromoCode, attributes: ["code"] }],
+  });
+  return redemption?.PromoCode?.code ?? null;
 }
 
 /**
@@ -586,10 +684,15 @@ async function deactivateOtherPublicPromoCodes(exceptPromoCodeId) {
 }
 
 async function createPublicPromoCode(data) {
-  const existing = await PromoCode.findOne({ where: { code: data.code } });
+  // Defensive — the Joi schema (validateCreatePromoCode) already uppercases
+  // `code` before this runs, but normalizing again here means this function
+  // is safe to call directly (e.g. from a maintenance script) without
+  // relying on that upstream validation step having happened first.
+  const code = String(data.code || "").trim().toUpperCase();
+  const existing = await PromoCode.findOne({ where: { code } });
   if (existing) throw new ValidationError("A promo code with this code already exists.");
 
-  const promoCode = await PromoCode.create({ ...data, type: "public", ownerUserId: null });
+  const promoCode = await PromoCode.create({ ...data, code, type: "public", ownerUserId: null });
   if (promoCode.isActive) {
     await deactivateOtherPublicPromoCodes(promoCode.promoCodeId);
   }
@@ -629,7 +732,7 @@ async function listPromoCodes({ page = 1, pageSize = 20 } = {}) {
 
 async function getPromoCodeByCode(code) {
   const promoCode = await PromoCode.findOne({
-    where: { code: String(code || "").trim().toLowerCase() },
+    where: { code: String(code || "").trim().toUpperCase() },
     include: [{ model: PromoCodeRedemption }],
   });
   if (!promoCode) throw new ResourceNotFoundError("Promo code not found.");
@@ -652,6 +755,8 @@ module.exports = {
   getOrCreateReferralCode,
   validatePromoCode,
   redeemPromoCode,
+  updateBookingPromoCode,
+  getAppliedPromoCodeForBooking,
   creditReferralRewardIfCompleted,
   getMyDiscountSummary,
   getActivePublicPromoForUser,

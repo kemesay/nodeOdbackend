@@ -27,6 +27,15 @@ const PromoCode = sequelize.define(
       type: DataTypes.STRING(20),
       allowNull: false,
       unique: true,
+      // Model-level backstop for the uppercase-canonical rule (see
+      // promoCodeSchema below for the Joi-layer version of the same
+      // normalization) — guarantees the invariant holds even for a write
+      // path that bypasses Joi entirely (e.g. a future maintenance script
+      // or console/REPL call), since every assignment to `code`, anywhere,
+      // funnels through this setter before it ever reaches the database.
+      set(value) {
+        this.setDataValue("code", String(value ?? "").trim().toUpperCase());
+      },
     },
     type: {
       type: DataTypes.ENUM("public", "referral", "reward"),
@@ -258,36 +267,31 @@ ReferralReward.belongsTo(PromoCode, { foreignKey: "promoCodeId" });
 ReferralReward.belongsTo(User, { foreignKey: "referrerUserId", as: "referrer" });
 ReferralReward.belongsTo(User, { foreignKey: "referredUserId", as: "referred" });
 
-// Normalizes a customer-submitted code before lookup. Lowercase is the
-// canonical case for every AUTO-GENERATED code (see generateReferralCode) —
-// stored lowercase, looked up lowercase, so matching is exact regardless of
-// collation. Admin-typed public codes (codeAsEntered, below) keep whatever
-// case the admin chose for display, so matching those still relies on the
-// database collation being case-insensitive (*_ci, confirmed on production
-// MySQL) — unchanged from before, just now normalizing to lowercase instead
-// of uppercase on this side of the comparison.
-const codeLower = () =>
+// Uppercase is the one canonical case for EVERY code — public or
+// auto-generated referral/reward alike — normalized explicitly here in
+// application code rather than relying on the database's collation being
+// case-insensitive. That collation assumption held on production MySQL
+// (*_ci) but does NOT hold on a local Postgres dev database, which is
+// case-sensitive by default — the exact gap that let an admin-typed public
+// code (stored as-entered, e.g. "OdaCar") silently fail to match a
+// customer's differently-cased input outside of production. Uppercase
+// (not lowercase) was chosen as the canonical case because every promo-code
+// text field on the website and app already forces uppercase as the
+// customer types, and industry convention displays codes in caps (e.g.
+// "SAVE20"). See scripts/uppercase-existing-promo-codes.js for the one-time
+// backfill of codes stored before this change.
+const promoCodeSchema = () =>
   Joi.string()
     .trim()
-    .lowercase()
+    .uppercase()
     .pattern(/^[a-zA-Z0-9]{4,20}$/)
-    .messages({
-      "string.pattern.base": "Promo code must be 4-20 letters/numbers, no spaces or symbols.",
-    });
-
-// Preserves whatever casing the admin typed (e.g. "OdaCar") for display —
-// only used at creation time.
-const codeAsEntered = () =>
-  Joi.string()
-    .trim()
-    .pattern(/^[A-Za-z0-9]{4,20}$/)
     .messages({
       "string.pattern.base": "Promo code must be 4-20 letters/numbers, no spaces or symbols.",
     });
 
 /** Admin creating a public/social-media campaign code. */
 const validateCreatePromoCode = Joi.object({
-  code: codeAsEntered().required(),
+  code: promoCodeSchema().required(),
   discountType: Joi.string().valid("percent", "flat").default("percent"),
   discountValue: Joi.number().min(0.01).required(),
   // A percent discount is never capped — always the full percentage of the
@@ -333,12 +337,12 @@ const validateUpdatePromoCode = Joi.object({
 
 /** Applying a code inline as part of a booking payload (booking services pick this out). */
 const validateApplyPromoCode = Joi.object({
-  code: codeLower().required(),
+  code: promoCodeSchema().required(),
 });
 
 /** Standalone `/promo-codes/validate` preview — needs the fare context to compute a discount. */
 const validatePromoCodePreview = Joi.object({
-  code: codeLower().required(),
+  code: promoCodeSchema().required(),
   bookingType: Joi.string().valid(...BOOKING_TYPES).required(),
   fareAmount: Joi.number().min(0.01).required(),
 });

@@ -912,6 +912,22 @@ const validateAirportBookUpdate = Joi.object({
   pickupPreferenceId: Joi.number().integer().allow(null),
   additionalStopId: Joi.number().integer().allow(null),
   additionalStopOnTheWayDescription: Joi.string().allow(""),
+  // Was missing here even though updateAirportBookForUser already has code
+  // to destroy/recreate SidePickDetour rows from it — this Joi schema was
+  // silently rejecting the field before that code ever ran, so a customer
+  // editing their side-detour stops always failed at validation.
+  sidePicks: Joi.array().items(
+    Joi.object({
+      address: Joi.string().required(),
+      latitude: Joi.number().required(),
+      longitude: Joi.number().required(),
+      sortOrder: Joi.number().integer().default(0),
+    })
+  ).optional(),
+  // Present + a real code: apply/replace whatever promo is currently on
+  // this booking. Present + "" or null: remove it. Absent entirely: leave
+  // whatever's already applied untouched.
+  promoCode: Joi.string().trim().uppercase().max(20).allow("", null).optional(),
   bookingFor: Joi.string().valid("Myself", "SomeoneElse"),
   passengerFullName: Joi.string().min(2).max(100),
   passengerEmail: Joi.string().email().max(255),
@@ -923,6 +939,10 @@ const validateAirportBookUpdate = Joi.object({
     verificationToken: Joi.string().allow("", null),
   }).optional(),
   squareCardId: Joi.string().optional(),
+  // Which saved card `squareCardId` belongs to — required to switch to a
+  // DIFFERENT saved card than whatever is already on the booking (without
+  // it, the update would keep resolving the booking's existing card).
+  paymentDetailId: Joi.number().integer().optional(),
 }).min(1).custom((value, helpers) => {
   // Only enforce the "either airportId OR airportLocation*" rule if the update tries
   // to modify any of the airport fields.

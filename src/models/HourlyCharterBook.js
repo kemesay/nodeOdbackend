@@ -802,6 +802,10 @@ const validateHourlyCharterBookUpdate = Joi.object({
     .regex(dateFormat)
     .message("Invalid pickup Date format. " + dateFormatMessage),
   specialInstructions: Joi.string().allow(""),
+  // Present + a real code: apply/replace whatever promo is currently on
+  // this booking. Present + "" or null: remove it. Absent entirely: leave
+  // whatever's already applied untouched.
+  promoCode: Joi.string().trim().uppercase().max(20).allow("", null).optional(),
   bookingFor: Joi.string().valid("Myself", "SomeoneElse"),
   passengerFullName: Joi.string().min(2).max(100),
   passengerEmail: Joi.string().email().max(255),
@@ -813,6 +817,10 @@ const validateHourlyCharterBookUpdate = Joi.object({
     verificationToken: Joi.string().allow("", null),
   }).optional(),
   squareCardId: Joi.string().optional(),
+  // Which saved card `squareCardId` belongs to — required to switch to a
+  // DIFFERENT saved card than whatever is already on the booking (without
+  // it, the update would keep resolving the booking's existing card).
+  paymentDetailId: Joi.number().integer().optional(),
 }).min(1);
 
 module.exports = {
