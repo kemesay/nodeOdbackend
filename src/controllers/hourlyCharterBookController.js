@@ -149,6 +149,7 @@ const {
 const authenticateToken = require("../utils/getUserFromToken.js");
 
 const { successResponse } = require("../utils/responseUtil.js");
+const { ForbiddenError } = require("../errors/CustomErrors.js");
 
 async function createHourlyCharterBookController(req, res, next) {
   const tokenHeader = req.header("Authorization");
@@ -224,6 +225,15 @@ async function getHourlyCharterBookController(req, res, _next) {
   const hourlyCharterBook = await getHourlyCharterBookById(
     req.params.hourlyCharterBookId
   );
+
+  const role = (req.user?.role || "").toLowerCase();
+  const isOwner =
+    hourlyCharterBook.userId != null &&
+    req.user?.userId === hourlyCharterBook.userId;
+  if (role !== "admin" && role !== "driver" && !isOwner) {
+    throw new ForbiddenError("Access denied: you do not own this booking.");
+  }
+
   return res.json(hourlyCharterBook);
 }
 

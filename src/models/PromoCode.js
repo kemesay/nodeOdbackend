@@ -236,12 +236,28 @@ const ReferralReward = sequelize.define(
       allowNull: false,
     },
     rewardCodeId: {
-      // The auto-minted "reward" PromoCode handed to the referrer once credited.
+      // The auto-minted "reward" PromoCode handed to the referrer once
+      // credited — no longer set for new rows (the referrer gets a wallet
+      // credit lot instead, see creditReferralRewardIfCompleted), kept
+      // nullable for historical rows minted before the wallet existed.
       type: DataTypes.BIGINT,
       allowNull: true,
     },
+    // The actual dollar amount credited to the referrer's wallet (set
+    // alongside rewardStatus: "credited") — rewardPercent above is frozen at
+    // the moment the referral is opened, but the dollar amount can only be
+    // known once the referred ride's final paid total is known, at crediting
+    // time.
+    creditedAmount: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+    },
     rewardStatus: {
-      type: DataTypes.ENUM("pending", "credited", "denied"),
+      // "reversed": the wallet credit lot this reward created was clawed
+      // back (in full or in its still-unspent part) because the triggering
+      // booking was later refunded/cancelled — see
+      // walletService.reverseWalletCreditForReferredBooking.
+      type: DataTypes.ENUM("pending", "credited", "denied", "reversed"),
       allowNull: false,
       defaultValue: "pending",
     },

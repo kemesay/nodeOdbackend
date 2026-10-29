@@ -9,6 +9,7 @@ const routes = require("./startUp/routes.js");
 const { connectToDatabase } = require("./config/database.js");
 const { initSocket } = require("./realtime/socket.js");
 const { verifyEmailTransport } = require("./utils/emailSender.js");
+const { registerPaymentAuthExpiryGuard } = require("./jobs/paymentAuthExpiryGuard.js");
 
 const app = express();
 
@@ -41,6 +42,10 @@ connectToDatabase().then(() => {
   server.listen(port, () => {
     console.log(`Listening on port ${port}...`);
   });
+
+  // No-op unless ENABLE_PAYMENT_EXPIRY_GUARD=true is set — see
+  // src/jobs/paymentAuthExpiryGuard.js for what this does and why.
+  registerPaymentAuthExpiryGuard();
 
   // Best-effort SMTP check — never blocks startup on a flaky mail server,
   // just surfaces a bad credential/hostname immediately instead of only

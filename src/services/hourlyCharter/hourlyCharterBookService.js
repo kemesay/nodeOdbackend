@@ -302,6 +302,7 @@ const {
   processBookingPayment,
   reconcilePaymentOnBookingUpdate,
 } = require("../payments/bookingSquarePayment.js");
+const { findTransactionHistory } = require("../payments/squarePaymentService.js");
 const { signBookingRoomToken } = require("../../realtime/socketRoomToken.js");
 const { PaymentDetail } = require("../../models/PaymentDetail.js");
 
@@ -337,6 +338,12 @@ const {
   getAppliedPromoCodeForBooking,
   creditReferralRewardIfCompleted,
 } = require("../promoCodeService.js");
+const {
+  getWalletBalance,
+  redeemWalletCredit,
+  reverseRedemptionForBooking,
+} = require("../walletService.js");
+const { creditLoyaltyMilestoneIfEligible } = require("../loyaltyService.js");
 
 async function createHourlyCharterBook(hourlyCharterBookData) {
   const {
@@ -356,6 +363,7 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
     squareCardId,
     isGuestBooking,
     promoCode,
+    useWalletCredit,
     ...otherData
   } = hourlyCharterBookData;
 
@@ -428,10 +436,10 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
     // discount can never eat into gratuity, and gratuity (below) can then
     // be computed on the discounted ride cost rather than the pre-discount
     // sticker price.
+    const subtotal = await calculateHourlyCharterSubtotal(hourlyCharterBook);
     let appliedPromoCode = null;
     let discountAmount = 0;
     if (promoCode) {
-      const subtotal = await calculateHourlyCharterSubtotal(hourlyCharterBook);
       const result = await validatePromoCode({
         code: promoCode,
         userId,
@@ -445,17 +453,35 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       discountAmount = result.discount;
     }
 
+    // Wallet credit auto-applies (fully or partially) toward whatever's left
+    // of the fare after any promo discount — same PRE_BOOKED-only
+    // restriction as promo codes above, since a LIVE pre-auth hold is sized
+    // off selectedHours+buffer, not totalTripFee, so a discount doesn't
+    // translate into a smaller hold in any well-defined way. Silently
+    // skipped (not an error) for LIVE, since this is an auto-apply feature
+    // rather than something the customer explicitly requested per booking.
+    let walletCreditAmount = 0;
+    if (userId && useWalletCredit !== false && billingMode !== "LIVE") {
+      const remainingAfterPromo = Math.max(subtotal - discountAmount, 0);
+      const walletBalance = await getWalletBalance(userId);
+      walletCreditAmount = Math.round(Math.min(walletBalance, remainingAfterPromo) * 100) / 100;
+    }
+
     // The actual charge — gratuity is computed inside here on the
-    // discounted ride cost when discountAmount > 0, and exactly as before
-    // (on the full ride cost) when it's 0. (LIVE mode always has
-    // discountAmount === 0 here, since it's rejected above.)
+    // discounted ride cost when the combined discount > 0, and exactly as
+    // before (on the full ride cost) when it's 0. (LIVE mode always has a
+    // 0 combined discount here, since both are rejected/skipped above.)
     const discountedTripFee = await calculateHourlyCharterTotalTripPrice(hourlyCharterBook, {
-      discount: discountAmount,
+      discount: discountAmount + walletCreditAmount,
     });
 
     hourlyCharterBook.totalTripFeeInDollars = discountedTripFee;
     if (appliedPromoCode) {
       hourlyCharterBook.promoDiscountAmountInDollars = discountAmount;
+      hourlyCharterBook.hasDiscountApplied = true;
+    }
+    if (walletCreditAmount > 0) {
+      hourlyCharterBook.walletCreditAppliedInDollars = walletCreditAmount;
       hourlyCharterBook.hasDiscountApplied = true;
     }
     await hourlyCharterBook.save();
@@ -489,6 +515,13 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
     if (paymentResult.paymentDetail) {
       await hourlyCharterBook.setPaymentDetail(paymentResult.paymentDetail);
     }
+    // The customer chose "add new card," but resolveSquareSourceId now saves
+    // it as a real card-on-file before charging it (see bookingSquarePayment.js)
+    // — the booking's own paymentMethod label should reflect that reality
+    // immediately, not wait for a later recharge to back-fill it.
+    if (paymentMethod === "SQUARE_NEW_CARD" && paymentResult.paymentDetail?.squareCardId) {
+      hourlyCharterBook.paymentMethod = "SQUARE_SAVED_CARD";
+    }
     hourlyCharterBook.paymentStatus = paymentResult.paymentStatus;
     await hourlyCharterBook.save();
 
@@ -501,6 +534,14 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
         bookingId: hourlyCharterBook.hourlyCharterBookId,
         bookingType: "Hourly Charter",
         discountApplied: discountAmount,
+      });
+    }
+    if (walletCreditAmount > 0) {
+      await redeemWalletCredit({
+        userId,
+        bookingId: hourlyCharterBook.hourlyCharterBookId,
+        bookingType: "Hourly Charter",
+        amount: walletCreditAmount,
       });
     }
   } catch (error) {
@@ -563,9 +604,11 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       }
 
       const promoCodeTouched = Object.prototype.hasOwnProperty.call(updatedData || {}, "promoCode");
+      const walletTouched = Object.prototype.hasOwnProperty.call(updatedData || {}, "useWalletCredit");
       const {
         extraOptions,
         promoCode: promoCodeUpdate,
+        useWalletCredit: useWalletCreditUpdate,
         square,
         squareCardId,
         paymentDetailId: paymentDetailIdUpdate,
@@ -609,8 +652,13 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       // since the fare calculator only ever applies the discount it's
       // explicitly given.
       let discountAmount = Number(reloaded.promoDiscountAmountInDollars) || 0;
+      let walletCreditAmount = Number(reloaded.walletCreditAppliedInDollars) || 0;
+      const subtotal =
+        promoCodeTouched || walletTouched
+          ? await calculateHourlyCharterSubtotal(reloaded)
+          : null;
+
       if (promoCodeTouched) {
-        const subtotal = await calculateHourlyCharterSubtotal(reloaded);
         const result = await updateBookingPromoCode({
           code: promoCodeUpdate,
           userId,
@@ -625,9 +673,40 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
         reloaded.hasDiscountApplied = discountAmount > 0;
       }
 
-      const totalTripFee = await calculateHourlyCharterTotalTripPrice(reloaded, { discount: discountAmount });
+      if (walletTouched) {
+        await reverseRedemptionForBooking({
+          bookingId: reloaded.hourlyCharterBookId,
+          bookingType: "Hourly Charter",
+        });
+        if (
+          useWalletCreditUpdate === false ||
+          !reloaded.userId ||
+          reloaded.billingMode === "LIVE"
+        ) {
+          walletCreditAmount = 0;
+        } else {
+          const remainingAfterPromo = Math.max(subtotal - discountAmount, 0);
+          const balance = await getWalletBalance(reloaded.userId);
+          walletCreditAmount = Math.round(Math.min(balance, remainingAfterPromo) * 100) / 100;
+        }
+        reloaded.walletCreditAppliedInDollars = walletCreditAmount;
+        reloaded.hasDiscountApplied = reloaded.hasDiscountApplied || walletCreditAmount > 0;
+      }
+
+      const totalTripFee = await calculateHourlyCharterTotalTripPrice(reloaded, {
+        discount: discountAmount + walletCreditAmount,
+      });
       reloaded.totalTripFeeInDollars = totalTripFee;
       await reloaded.save();
+
+      if (walletTouched && walletCreditAmount > 0) {
+        await redeemWalletCredit({
+          userId: reloaded.userId,
+          bookingId: reloaded.hourlyCharterBookId,
+          bookingType: "Hourly Charter",
+          amount: walletCreditAmount,
+        });
+      }
       const finalBook = await getHourlyCharterBookById(hourlyCharterBook.hourlyCharterBookId);
       const newTotal = Number(finalBook.totalTripFeeInDollars);
       // A customer switching cards sends `square` (a fresh nonce) or
@@ -649,6 +728,7 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
           userId: finalBook.userId,
           square,
           squareCardId,
+          booking: finalBook,
         });
         if (paymentUpdate) {
           if (paymentUpdate.paymentDetail) {
@@ -730,6 +810,7 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
 
       if (updatedData.bookingStatus === "COMPLETED") {
         await creditReferralRewardIfCompleted("Hourly Charter", hourlyCharterBookId);
+        await creditLoyaltyMilestoneIfEligible("Hourly Charter", hourlyCharterBookId);
       }
 
       return saved;
@@ -824,6 +905,16 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
               "Hourly Charter"
             )
           : null
+      );
+
+      // Same display-only pattern as appliedPromoCode above — the full
+      // Square transaction trail for this booking, oldest first, so an
+      // admin (or the customer's own booking detail view) can see when a
+      // payment hold was renewed (see renewAuthorizationForBooking) or
+      // reconciled after a fare change, not just the single current status.
+      hourlyCharterBook.setDataValue(
+        "paymentHistory",
+        await findTransactionHistory("HOURLY", hourlyCharterBook.hourlyCharterBookId)
       );
 
       return hourlyCharterBook;
@@ -987,6 +1078,7 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
             paymentDetailId: booking.paymentDetailId,
             squareCardId: booking.squareCardId,
             userId: booking.userId,
+            booking,
           });
           if (paymentUpdate?.paymentStatus) {
             booking.paymentStatus = paymentUpdate.paymentStatus;

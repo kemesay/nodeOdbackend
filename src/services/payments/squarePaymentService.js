@@ -199,6 +199,31 @@ async function findLatestTransaction(bookingType, bookingId) {
   });
 }
 
+/**
+ * Every Square payment attempt ever made for this booking, oldest first — a
+ * booking accumulates more than one row over its lifetime whenever its hold
+ * is renewed (see renewAuthorizationForBooking, for a trip still days away)
+ * or reconciled after a fare change (see reconcilePaymentOnBookingUpdate):
+ * each one cancels the prior row and opens a fresh one rather than editing
+ * the old row in place, so this full history is the only place that trail is
+ * visible. Surfaced on booking detail responses as `paymentHistory` so an
+ * admin (or a curious customer) can see "this was renewed twice, most
+ * recently on Oct 20" instead of just the single current status.
+ */
+async function findTransactionHistory(bookingType, bookingId) {
+  const ledgerType = normalizePaymentBookingType(bookingType) || bookingType;
+  const rows = await PaymentTransaction.findAll({
+    where: { bookingType: ledgerType, bookingId },
+    order: [["createdAt", "ASC"]],
+    attributes: ["paymentTransactionId", "status", "amountCents", "createdAt"],
+  });
+  return rows.map((row) => ({
+    status: row.status,
+    amountDollars: Number(row.amountCents || 0) / 100,
+    createdAt: row.createdAt,
+  }));
+}
+
 async function updateTransactionStatus(squarePaymentId, status, rawResponse) {
   const row = await PaymentTransaction.findOne({
     where: { squarePaymentId },
@@ -309,6 +334,7 @@ module.exports = {
   refundPayment,
   recordPaymentTransaction,
   findLatestTransaction,
+  findTransactionHistory,
   updateTransactionStatus,
   createSquareCustomer,
   createCardOnFile,

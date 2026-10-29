@@ -78,10 +78,11 @@ function discountedLegCarFare(legCarFare, subtotal, discount) {
 }
 
 /**
- * Optional flat fee for a booking that has at least one side-pick detour
- * stop — added once regardless of trip type (never doubled for round trip),
- * same as additionalStopPrice. Off by default; an admin turns it on and sets
- * the amount from Side Detour Settings (see sideDetourSettingsService.js).
+ * Optional per-stop fee for a booking that has side-pick detour stops —
+ * startFee is charged for EACH detour stop (3 stops = 3x the fee), not once
+ * per booking — and, like additionalStopPrice, never doubled for round trip.
+ * Off by default; an admin turns it on and sets the per-stop amount from
+ * Side Detour Settings (see sideDetourSettingsService.js).
  *
  * `sideDetourCount`/`sideDetourSettings` are meant to be passed explicitly by
  * the caller (the only way to guarantee correctness for the actual charge —
@@ -98,7 +99,7 @@ function sideDetourFeeFor(booking, { sideDetourCount, sideDetourSettings } = {})
       : Array.isArray(booking.SidePickDetours)
         ? booking.SidePickDetours.length
         : 0;
-  return count > 0 ? roundMoney(sideDetourSettings.startFee) : 0;
+  return count > 0 ? roundMoney(count * sideDetourSettings.startFee) : 0;
 }
 
 function sumExtraOptionsPrice(extraOptions, throughKey, { roundTrip }) {

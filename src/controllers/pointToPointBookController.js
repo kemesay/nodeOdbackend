@@ -140,6 +140,7 @@ const {
 
 const { successResponse } = require("../utils/responseUtil.js");
 const authenticateToken = require("../utils/getUserFromToken.js");
+const { ForbiddenError } = require("../errors/CustomErrors.js");
 
 async function createPointToPointBookController(req, res, next) {
   const tokenHeader = req.header("Authorization");
@@ -215,6 +216,15 @@ async function getPointToPointBookController(req, res, _next) {
   const pointToPointBook = await getPointToPointBookById(
     req.params.pointToPointBookId
   );
+
+  const role = (req.user?.role || "").toLowerCase();
+  const isOwner =
+    pointToPointBook.userId != null &&
+    req.user?.userId === pointToPointBook.userId;
+  if (role !== "admin" && role !== "driver" && !isOwner) {
+    throw new ForbiddenError("Access denied: you do not own this booking.");
+  }
+
   return res.json(pointToPointBook);
 }
 

@@ -418,15 +418,38 @@ async function updateUser(userId, updatedUserData) {
   return userResponse(user);
 }
 
-async function getAllUsers(role) {
+/**
+ * `search`, when given, matches against fullName/email/phoneNumber
+ * (case-insensitive substring) — e.g. for an admin "find this customer"
+ * screen such as the wallet lookup page, where the admin may only have a
+ * partial name, email, or phone number to go on. `role` stays an exact
+ * match as before; both filters combine (AND) when both are given.
+ */
+async function getAllUsers(role, search) {
+  const where = {};
+  if (role) where.role = role;
+  if (search) {
+    const term = `%${String(search).trim()}%`;
+    // Postgres' LIKE is case-sensitive by default (unlike MySQL's usual
+    // case-insensitive collation), so this needs its own ILIKE operator —
+    // same dialect split already used throughout scripts/ensure-*.js.
+    const likeOp = sequelize.getDialect() === "postgres" ? Op.iLike : Op.like;
+    where[Op.or] = [
+      { fullName: { [likeOp]: term } },
+      { email: { [likeOp]: term } },
+      { phoneNumber: { [likeOp]: term } },
+    ];
+  }
+
   return await User.findAll({
-    where: {
-      role: role,
-    },
+    where,
     attributes: {
       exclude: ["password", "createdAt", "updatedAt", "deletedAt"],
     },
     order: [["fullName", "ASC"]],
+    // Only bounded for an actual search — the existing unfiltered admin user
+    // list (no `search` given) must keep returning everyone, unchanged.
+    ...(search ? { limit: 50 } : {}),
   });
 }
 

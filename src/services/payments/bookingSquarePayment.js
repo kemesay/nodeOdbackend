@@ -18,11 +18,14 @@ const squarePaymentService = require("./squarePaymentService.js");
 const {
   ensureSquareCustomerForUser,
   persistSquareCardFromPayment,
+  persistSquareCardFromNonce,
   recoverPaymentDetailFromTransaction,
   isCanceledSquarePaymentError,
+  SquareNonceConsumedError,
 } = require("./squareCardPersistence.js");
 const { emitPaymentTransactionUpdated } = require("../../realtime/socket.js");
 const { normalizePaymentBookingType } = require("../../utils/paymentBookingType.js");
+const { reverseWalletCreditForReferredBooking } = require("../walletService.js");
 const { parsePaymentAmountDollars, roundMoney } = require("../../utils/bookingFareCalculator.js");
 const { dollarsToCents } = require("../../config/square.js");
 const {
@@ -112,11 +115,64 @@ async function resolveSquareSourceId({
   squareCardId,
   paymentDetailId,
   userId,
+  cardDetails,
 }) {
   if (paymentMethod === "SQUARE_NEW_CARD") {
     if (!square?.sourceId) {
       throw new ValidationError("square.sourceId is required");
     }
+
+    // Save-then-charge instead of charge-then-best-effort-save: for a
+    // signed-in customer, save this freshly-tokenized card as a card on file
+    // FIRST, then charge the resulting ccof: id — Square's own recommended
+    // order for "charge now, keep the card for later." This guarantees a
+    // real saved card exists before the FIRST authorization is even
+    // attempted, so the payment-hold renewal job and the recharge fallback
+    // both have something real to work with from the start, instead of
+    // depending on an after-the-fact best-effort save. Guests have no
+    // account to attach a saved card to, so this only applies when userId is
+    // present; a guest's new-card charge is unchanged.
+    if (userId) {
+      let saved;
+      try {
+        saved = await persistSquareCardFromNonce({
+          userId,
+          sourceId: square.sourceId,
+          cardHints: {
+            cardOwnerName: cardDetails?.cardOwnerName,
+            zipCode: cardDetails?.zipCode,
+            email: cardDetails?.email,
+          },
+        });
+      } catch (err) {
+        if (err instanceof SquareNonceConsumedError) {
+          // The nonce was already submitted to Square while trying to save
+          // this card and can never be charged now, win or lose — Square
+          // consumes it on first submission regardless of outcome. Falling
+          // back to charging square.sourceId here would just guarantee a
+          // second, doomed call (Square's CARD_TOKEN_USED). The client must
+          // re-tokenize the card (request a fresh nonce) and retry.
+          throw new ValidationError(
+            "We couldn't save this card with Square — it may have been declined or the card session expired. Please re-enter your card details and try again."
+          );
+        }
+        throw err;
+      }
+      if (saved?.squareCardId) {
+        return {
+          sourceId: saved.squareCardId,
+          verificationToken: square.verificationToken,
+          paymentDetail: saved,
+        };
+      }
+    }
+
+    // Fallback — guest booking, or we couldn't even resolve/create a Square
+    // customer record for this user (rare; logged inside
+    // persistSquareCardFromNonce). Either way the nonce was never submitted
+    // to Square, so it's still safe to charge directly here.
+    // persistSquareCardFromPayment still gets a second, after-the-fact
+    // chance to save the card once the charge completes.
     return {
       sourceId: square.sourceId,
       verificationToken: square.verificationToken,
@@ -268,6 +324,7 @@ async function processBookingPayment({
       squareCardId,
       paymentDetailId,
       userId,
+      cardDetails,
     });
 
   let customerId = null;
@@ -395,6 +452,7 @@ async function reconcilePaymentOnBookingUpdate({
   squareCardId,
   paymentDetailId,
   userId,
+  booking = null,
 }) {
   const existing = await squarePaymentService.findLatestTransaction(
     bookingType,
@@ -434,11 +492,42 @@ async function reconcilePaymentOnBookingUpdate({
   // demanding square.sourceId on a booking that was originally
   // SQUARE_SAVED_CARD, even though the customer just supplied a brand-new
   // squareCardId, or the reverse).
-  const effectivePaymentMethod = square?.sourceId
-    ? "SQUARE_NEW_CARD"
-    : squareCardId
-    ? "SQUARE_SAVED_CARD"
-    : paymentMethod || "SQUARE_SAVED_CARD";
+  let effectivePaymentMethod;
+  let resolvedSquareCardId = squareCardId;
+  let resolvedPaymentDetailId = paymentDetailId;
+
+  if (square?.sourceId) {
+    effectivePaymentMethod = "SQUARE_NEW_CARD";
+  } else if (squareCardId) {
+    effectivePaymentMethod = "SQUARE_SAVED_CARD";
+  } else {
+    // Neither a fresh nonce nor an explicit saved-card id came in with this
+    // update — e.g. the customer only edited trip details and the fare
+    // moved as a side effect, with no intent to touch payment at all. The
+    // OLD code trusted the booking's stale, original `paymentMethod` label
+    // here, which is "SQUARE_NEW_CARD" for the overwhelming majority of
+    // bookings (that's the default at creation and is almost never
+    // promoted afterward) — a one-time nonce that's already been spent and
+    // can never be reused, so this unconditionally threw the generic
+    // "square.sourceId is required" even when a perfectly good saved card
+    // was available. Same fix already proven in chargeSavedCardForBooking:
+    // check whether a REAL, resolvable Square card-on-file exists for this
+    // booking/customer before giving up.
+    const resolvedDetail = booking
+      ? await ensureBookingPaymentDetail(booking, existing)
+      : null;
+    if (resolvedDetail?.squareCardId) {
+      effectivePaymentMethod = "SQUARE_SAVED_CARD";
+      resolvedSquareCardId = resolvedDetail.squareCardId;
+      resolvedPaymentDetailId = resolvedDetail.paymentDetailId;
+    } else {
+      throw new ValidationError(
+        "This booking's new total needs a card to charge, and there's no " +
+          "saved card on file to use automatically. Please enter a new " +
+          "card (or choose a saved one) to confirm this change."
+      );
+    }
+  }
 
   const result = await processBookingPayment({
     bookingType,
@@ -447,8 +536,8 @@ async function reconcilePaymentOnBookingUpdate({
     amountDollars: newAmountDollars,
     paymentMethod: effectivePaymentMethod,
     square,
-    squareCardId,
-    paymentDetailId,
+    squareCardId: resolvedSquareCardId,
+    paymentDetailId: resolvedPaymentDetailId,
     userId,
     isGuestBooking: false,
   });
@@ -502,6 +591,16 @@ async function handleAdminBookingPayment({
       await tx.update({ status: "REFUNDED" });
     }
     booking.paymentStatus = "CANCELLED";
+
+    // If this booking was the triggering ride for an already-credited
+    // referral reward (i.e. it had completed and paid before now), claw back
+    // whatever's left unspent of the referrer's wallet credit lot. A no-op
+    // when this booking never credited anyone, or when the lot's already
+    // been fully spent — see walletService.reverseWalletCreditForReferredBooking.
+    await reverseWalletCreditForReferredBooking({
+      bookingType: ledgerBookingType,
+      bookingId,
+    });
   }
 
   await booking.save();
@@ -557,17 +656,36 @@ async function chargeSavedCardForBooking({
 }) {
   const paymentDetail = await ensureBookingPaymentDetail(booking, tx);
 
-  const paymentMethod = booking.paymentMethod || "EXISTING_CARD";
-  const allowed = new Set([
+  // A booking's original paymentMethod (e.g. SQUARE_NEW_CARD) only records
+  // how it was FIRST paid — it's never promoted afterward even when a real,
+  // chargeable card-on-file was later saved (see persistSquareCardFromPayment,
+  // which best-effort converts a one-time new-card charge into a saved card
+  // for signed-in users, and ensureBookingPaymentDetail/
+  // recoverPaymentDetailFromTransaction above, which can recover one from the
+  // original transaction even now). Gating on that stale label instead of on
+  // whether a real Square card-on-file actually exists wrongly blocked
+  // recharging for exactly this common case — the majority of bookings
+  // default to SQUARE_NEW_CARD, so this was failing "most of the time" even
+  // when a perfectly chargeable saved card was sitting right there.
+  const hasResolvableSquareCard = Boolean(paymentDetail?.squareCardId);
+  const legacyMethod = booking.paymentMethod || "EXISTING_CARD";
+  const allowedLegacy = new Set([
     "SQUARE_SAVED_CARD",
     "PRIMARY_CARD",
     "EXISTING_CARD",
   ]);
-  if (!allowed.has(paymentMethod)) {
+  if (!hasResolvableSquareCard && !allowedLegacy.has(legacyMethod)) {
     throw new ValidationError(
-      "No authorized payment to capture. Customer must pay with a saved card or re-book with Square."
+      "This booking's original card authorization is no longer valid " +
+        "(it most likely expired before the payment was captured), and no " +
+        "saved card is on file to recharge automatically. Ask the customer " +
+        "to add a payment method from their account and try again, or " +
+        "cancel this booking and have them re-book."
     );
   }
+  const paymentMethod = hasResolvableSquareCard
+    ? "SQUARE_SAVED_CARD"
+    : legacyMethod;
 
   const { sourceId, verificationToken, paymentDetail: resolvedDetail } =
     await resolveSquareSourceId({
@@ -604,8 +722,93 @@ async function chargeSavedCardForBooking({
   if (result.paymentDetail) {
     await booking.setPaymentDetail(result.paymentDetail);
   }
+  // Back-fills the stale paymentMethod label now that a real saved card is
+  // confirmed to exist for this booking — prevents this exact mismatch
+  // (label says SQUARE_NEW_CARD, a genuine ccof: card actually exists) from
+  // recurring the next time this booking needs a recharge.
+  if (
+    paymentMethod === "SQUARE_SAVED_CARD" &&
+    booking.paymentMethod !== "SQUARE_SAVED_CARD"
+  ) {
+    booking.paymentMethod = "SQUARE_SAVED_CARD";
+  }
   booking.paymentStatus =
     result.paymentStatus === "PAID" ? "PAID" : result.paymentStatus;
+  await booking.save();
+  return booking;
+}
+
+/**
+ * Renews a Square authorization that's about to expire while the trip is
+ * still days away, instead of capturing it early. Capturing at the ~5-day
+ * mark (paymentAuthExpiryGuard's normal behavior) is correct for a trip
+ * that's happening soon, but for a booking made 2+ weeks out it would mean
+ * billing the customer 10 days before their ride — surprising, and turns a
+ * same-day cancellation into an actual refund instead of just voiding an
+ * unused hold. This cancels the stale hold and opens a fresh one for the
+ * exact same amount against a real saved card — the customer is never
+ * charged and never has to do anything, and the capture still happens at
+ * the normal time (right before the ride) via this same job once the trip
+ * is close.
+ *
+ * Returns null (does nothing) if there's no resolvable saved card — e.g. a
+ * SQUARE_NEW_CARD booking where persistSquareCardFromPayment's best-effort
+ * save at booking time didn't succeed (see its own logging) or was never
+ * reachable (a legacy/guest booking). The caller should fall back to
+ * capturing early in that case — there's nothing left to silently renew.
+ */
+async function renewAuthorizationForBooking({
+  booking,
+  ledgerBookingType,
+  bookingId,
+  amount,
+  tx,
+}) {
+  const paymentDetail = await ensureBookingPaymentDetail(booking, tx);
+  if (!paymentDetail?.squareCardId) {
+    return null;
+  }
+
+  try {
+    await squarePaymentService.cancelPayment(tx.squarePaymentId);
+  } catch (err) {
+    // Square may have already expired/canceled it on its own between this
+    // job's scan and this call — fine, that's exactly the state we want it
+    // in before opening the new hold. Anything else is a real failure.
+    if (!isCanceledSquarePaymentError(err)) {
+      throw err;
+    }
+  }
+  await tx.update({ status: "CANCELED" });
+
+  const customerId = await resolveSquareCustomerId({
+    userId: booking.userId,
+    paymentDetail,
+    squareCardId: paymentDetail.squareCardId,
+  });
+
+  const result = await chargeWithSquare({
+    bookingType: ledgerBookingType,
+    bookingId,
+    confirmationNumber: booking.confirmationNumber,
+    amountDollars: amount,
+    sourceId: paymentDetail.squareCardId,
+    paymentDetail,
+    customerId,
+    userId: booking.userId,
+    cardHints: bookingCardHints(booking),
+    forceImmediateCapture: false, // renew the hold — do NOT capture yet
+  });
+
+  if (result.paymentDetail) {
+    await booking.setPaymentDetail(result.paymentDetail);
+  }
+  if (booking.paymentMethod !== "SQUARE_SAVED_CARD") {
+    booking.paymentMethod = "SQUARE_SAVED_CARD";
+  }
+  // Expected to be "AUTHORIZED" — shouldChargeImmediately() is false in
+  // authorize_capture mode, so chargeWithSquare opens a hold, not a capture.
+  booking.paymentStatus = result.paymentStatus;
   await booking.save();
   return booking;
 }
@@ -783,4 +986,5 @@ module.exports = {
   handleAdminBookingPayment,
   handleAdminTakePayment,
   resolveLegacyPaymentDetail,
+  renewAuthorizationForBooking,
 };

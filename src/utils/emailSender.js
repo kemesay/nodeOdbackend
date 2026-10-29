@@ -566,11 +566,33 @@ async function sendBookingConfirmationAndAdminEmail(bookingType, booking, option
       html: userHtml,
     };
 
-    const adminInfo = await transporter.sendMail(adminOptions);
-    logger.info("Admin email sent: " + adminInfo.response);
+    // Sent independently (Promise.allSettled, not two sequential awaits) so
+    // a failure on one side can never silently cancel the other — e.g. a bad
+    // admin address or a transient SMTP hiccup on the admin send must not
+    // stop a customer from getting their own confirmation/update email, and
+    // vice versa. This actually happened: an SMTP auth outage on 2026-09-12
+    // threw on whichever send ran first and skipped the other one entirely,
+    // since both used to live under one shared try/catch.
+    const [adminResult, userResult] = await Promise.allSettled([
+      transporter.sendMail(adminOptions),
+      transporter.sendMail(userOptions),
+    ]);
 
-    const userInfo = await transporter.sendMail(userOptions);
-    logger.info("User email sent: " + userInfo.response);
+    if (adminResult.status === "fulfilled") {
+      logger.info("Admin email sent: " + adminResult.value.response);
+    } else {
+      logger.error("Admin email send failed: " + adminResult.reason?.message, {
+        stack: adminResult.reason?.stack,
+      });
+    }
+
+    if (userResult.status === "fulfilled") {
+      logger.info("User email sent: " + userResult.value.response);
+    } else {
+      logger.error("User email send failed: " + userResult.reason?.message, {
+        stack: userResult.reason?.stack,
+      });
+    }
   } catch (error) {
     logger.error("Email send failed: " + error.message, { stack: error.stack });
   }

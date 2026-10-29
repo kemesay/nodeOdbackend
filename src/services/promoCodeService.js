@@ -15,6 +15,7 @@ const {
 } = require("../errors/CustomErrors.js");
 const logger = require("../config/logging.js");
 const { getReferralSettings } = require("./referralSettingsService.js");
+const walletService = require("./walletService.js");
 
 // Referral economics: the friend who was invited gets a discount on their
 // first ride; the person who invited them gets a flat credit once that ride
@@ -484,9 +485,15 @@ async function getAppliedPromoCodeForBooking(bookingId, bookingType) {
 }
 
 /**
- * Call when a booking's status transitions to COMPLETED. Mints a one-time
- * "reward" promo code for the referrer if this booking was the triggering
- * ride for a pending referral reward.
+ * Call when a booking's status transitions to COMPLETED. Credits the
+ * referrer's wallet balance if this booking was the triggering ride for a
+ * pending referral reward — a dollar amount equal to `rewardPercent`% of the
+ * referred ride's own final paid total (totalTripFeeInDollars), computed now
+ * rather than frozen earlier, since that total isn't known until the ride is
+ * actually completed and paid for. Replaces the previous mechanism (minting
+ * a one-time, 90-day "reward" PromoCode) with a running wallet balance that
+ * accumulates across referrals and auto-applies to future bookings — see
+ * walletService.js.
  */
 async function creditReferralRewardIfCompleted(bookingType, bookingId) {
   const reward = await ReferralReward.findOne({
@@ -501,33 +508,40 @@ async function creditReferralRewardIfCompleted(bookingType, bookingId) {
     return null;
   }
 
+  const BookingModel = BOOKING_MODELS[bookingType];
+  const triggeringBooking = BookingModel ? await BookingModel.findByPk(bookingId) : null;
+  const referredFare = triggeringBooking ? Number(triggeringBooking.totalTripFeeInDollars) || 0 : 0;
+  const creditedAmount = Math.round(((Number(reward.rewardPercent) || 0) / 100) * referredFare * 100) / 100;
+
+  if (creditedAmount <= 0) {
+    // Nothing to credit (e.g. the referred booking was free/comped) — deny
+    // rather than leave it pending forever, since it already completed.
+    reward.rewardStatus = "denied";
+    await reward.save();
+    return null;
+  }
+
   // No cap on earning — a referrer is rewarded for every single friend who
   // genuinely completes and pays for a ride, whether that's their 1st or
   // their 100,000th. (The unrelated, admin-tunable caps on how many codes a
   // person can personally *spend* — see ReferralSettings — are untouched by
   // this.)
-  const firstName = String(referrer.fullName || "").trim().split(/\s+/)[0] || "USER";
-  const rewardCode = await PromoCode.create({
-    code: `${generateReferralCode(firstName, referrer.userId)}R${reward.referralRewardId}`.slice(0, 20),
-    type: "reward",
-    ownerUserId: referrer.userId,
-    discountType: "percent",
-    discountValue: reward.rewardPercent,
-    maxRedemptionsPerUser: 1,
-    maxTotalRedemptions: 1,
-    isActive: true,
-    expiresAt: new Date(Date.now() + REFERRAL_REWARD_CODE_VALID_DAYS * 24 * 60 * 60 * 1000),
+  await walletService.creditWallet({
+    userId: referrer.userId,
+    amount: creditedAmount,
+    sourceType: "referral_reward",
+    sourceReferralRewardId: reward.referralRewardId,
   });
 
   reward.rewardStatus = "credited";
-  reward.rewardCodeId = rewardCode.promoCodeId;
+  reward.creditedAmount = creditedAmount;
   reward.creditedAt = new Date();
   await reward.save();
 
   logger.info(
-    `Referral reward credited: referrer ${referrer.userId} got code ${rewardCode.code} (${reward.rewardPercent}% off)`
+    `Referral reward credited: referrer ${referrer.userId} got $${creditedAmount} wallet credit (${reward.rewardPercent}% of $${referredFare})`
   );
-  return rewardCode;
+  return { creditedAmount };
 }
 
 /**

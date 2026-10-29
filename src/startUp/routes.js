@@ -24,6 +24,10 @@ const bookingQuoteRoutes = require("../routes/bookingQuoteRoutes.js");
 const emailRoutes = require("../routes/emailRoutes.js");
 const promoCodeRoutes = require("../routes/promoCodeRoutes.js");
 const sideDetourSettingsRoutes = require("../routes/sideDetourSettingsRoutes.js");
+const walletRoutes = require("../routes/walletRoutes.js");
+const adminWalletRoutes = require("../routes/admin/walletRoutes.js");
+const adminWalletCashOutRoutes = require("../routes/admin/walletCashOutRoutes.js");
+const loyaltySettingsRoutes = require("../routes/loyaltySettingsRoutes.js");
 
 module.exports = function setupRoutes(app) {
   app.use(
@@ -49,11 +53,15 @@ module.exports = function setupRoutes(app) {
   app.use("/api/v1/airport-books", airportBookRoutes);
   app.use("/api/v1/users/bookings", userBooking);
   app.use("/api/v1/users/payment-detail", paymentDetailRoute);
+  app.use("/api/v1/users/wallet", walletRoutes);
   app.use("/api/v1/admin/bookings", adminBooking);
+  app.use("/api/v1/admin/users", adminWalletRoutes);
+  app.use("/api/v1/admin/wallet", adminWalletCashOutRoutes);
   app.use("/api/v1/footer-contents", footerContentRoutes);
   app.use("/api/v1/social-medias", socialMediaRoutes);
   app.use("/api/v1/email", emailRoutes);
   app.use("/api/v1/promo-codes", promoCodeRoutes);
   app.use("/api/v1/side-detour-settings", sideDetourSettingsRoutes);
+  app.use("/api/v1/loyalty-settings", loyaltySettingsRoutes);
   app.use(errorHandler);
 };

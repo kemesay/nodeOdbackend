@@ -206,8 +206,8 @@ async function getMyInfoController(req, res, _next) {
 }
 
 async function getAllUsersController(req, res, _next) {
-  const role = req.query.role;
-  const users = await getAllUsers(role);
+  const { role, search } = req.query;
+  const users = await getAllUsers(role, search);
   return res.json(users);
 }
 

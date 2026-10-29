@@ -400,4 +400,5 @@ async function sendPaymentStatusUpdateEmailService(booking, bookingType) {
 module.exports = {
   adminBookingApproval,
   paymentStatusUpdate,
+  getBooking,
 };

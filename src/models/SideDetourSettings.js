@@ -4,15 +4,16 @@ const Joi = require("joi");
 
 /**
  * A single-row table (id is always 1) controlling the optional side-pick-detour
- * fee: a flat "start fee" added once, on top of the normal per-mile fare, for
- * any booking that has at least one side-pick detour stop. It's off (isActive:
- * false, startFee: 0) by default — this is a brand-new charge, not an existing
- * behavior being made configurable, so nothing changes for customers until an
- * admin deliberately turns it on from the dashboard.
+ * fee: a "start fee" charged on top of the normal per-mile fare for EACH
+ * side-pick detour stop on a booking (3 stops = 3x startFee, not a flat
+ * one-time charge). It's off (isActive: false, startFee: 0) by default — this
+ * is a brand-new charge, not an existing behavior being made configurable, so
+ * nothing changes for customers until an admin deliberately turns it on from
+ * the dashboard.
  *
  * Applies identically to one-way and round-trip bookings (see
- * bookingFareCalculator.js — added once into the subtotal, never doubled), and
- * only to booking types that support side-pick detours today (Point to Point,
+ * bookingFareCalculator.js — never doubled for round trip), and only to
+ * booking types that support side-pick detours today (Point to Point,
  * Airport Service). Hourly Charter has no side-pick concept and is unaffected.
  */
 const SideDetourSettings = sequelize.define(

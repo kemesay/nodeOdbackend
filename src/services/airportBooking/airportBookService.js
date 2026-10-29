@@ -360,6 +360,7 @@ const {
   processBookingPayment,
   reconcilePaymentOnBookingUpdate,
 } = require("../payments/bookingSquarePayment.js");
+const { findTransactionHistory } = require("../payments/squarePaymentService.js");
 const { signBookingRoomToken } = require("../../realtime/socketRoomToken.js");
 const { PaymentDetail } = require("../../models/PaymentDetail.js");
 
@@ -408,6 +409,12 @@ const {
   getAppliedPromoCodeForBooking,
   creditReferralRewardIfCompleted,
 } = require("../promoCodeService.js");
+const {
+  getWalletBalance,
+  redeemWalletCredit,
+  reverseRedemptionForBooking,
+} = require("../walletService.js");
+const { creditLoyaltyMilestoneIfEligible } = require("../loyaltyService.js");
 
 async function createAirportBook(airportBookData) {
   const {
@@ -429,6 +436,7 @@ async function createAirportBook(airportBookData) {
     square,
     squareCardId,
     promoCode,
+    useWalletCredit,
     ...otherData
   } = airportBookData;
 
@@ -542,10 +550,10 @@ async function createAirportBook(airportBookData) {
     // discount can never eat into gratuity, and gratuity (below) can then
     // be computed on the discounted ride cost rather than the pre-discount
     // sticker price.
+    const subtotal = await calculateAirportBookingSubtotal(airportBook);
     let appliedPromoCode = null;
     let discountAmount = 0;
     if (promoCode) {
-      const subtotal = await calculateAirportBookingSubtotal(airportBook);
       const result = await validatePromoCode({
         code: promoCode,
         userId,
@@ -559,16 +567,31 @@ async function createAirportBook(airportBookData) {
       discountAmount = result.discount;
     }
 
+    // Wallet credit auto-applies (fully or partially) toward whatever's left
+    // of the fare after any promo discount — a third, independent discount
+    // bucket, additive with the promo discount, only for signed-in users
+    // (guests have no wallet). `useWalletCredit: false` opts out entirely.
+    let walletCreditAmount = 0;
+    if (userId && useWalletCredit !== false) {
+      const remainingAfterPromo = Math.max(subtotal - discountAmount, 0);
+      const walletBalance = await getWalletBalance(userId);
+      walletCreditAmount = Math.round(Math.min(walletBalance, remainingAfterPromo) * 100) / 100;
+    }
+
     // The actual charge — gratuity is computed inside here on the
-    // discounted ride cost when discountAmount > 0, and exactly as before
-    // (on the full ride cost) when it's 0.
+    // discounted ride cost when the combined discount > 0, and exactly as
+    // before (on the full ride cost) when it's 0.
     const chargeAmount = await calculateAirportBookingTotalTripPrice(airportBook, {
-      discount: discountAmount,
+      discount: discountAmount + walletCreditAmount,
     });
 
     airportBook.totalTripFeeInDollars = chargeAmount;
     if (appliedPromoCode) {
       airportBook.promoDiscountAmountInDollars = discountAmount;
+      airportBook.hasDiscountApplied = true;
+    }
+    if (walletCreditAmount > 0) {
+      airportBook.walletCreditAppliedInDollars = walletCreditAmount;
       airportBook.hasDiscountApplied = true;
     }
     await airportBook.save();
@@ -590,6 +613,13 @@ async function createAirportBook(airportBookData) {
     if (paymentResult.paymentDetail) {
       await airportBook.setPaymentDetail(paymentResult.paymentDetail);
     }
+    // The customer chose "add new card," but resolveSquareSourceId now saves
+    // it as a real card-on-file before charging it (see bookingSquarePayment.js)
+    // — the booking's own paymentMethod label should reflect that reality
+    // immediately, not wait for a later recharge to back-fill it.
+    if (paymentMethod === "SQUARE_NEW_CARD" && paymentResult.paymentDetail?.squareCardId) {
+      airportBook.paymentMethod = "SQUARE_SAVED_CARD";
+    }
     airportBook.paymentStatus = paymentResult.paymentStatus;
     await airportBook.save();
 
@@ -602,6 +632,14 @@ async function createAirportBook(airportBookData) {
         bookingId: airportBook.airportBookId,
         bookingType: "Airport Service",
         discountApplied: discountAmount,
+      });
+    }
+    if (walletCreditAmount > 0) {
+      await redeemWalletCredit({
+        userId,
+        bookingId: airportBook.airportBookId,
+        bookingType: "Airport Service",
+        amount: walletCreditAmount,
       });
     }
   } catch (error) {
@@ -665,10 +703,12 @@ async function updateAirportBookForUser(airportBookId, userId, updatedData, opts
 
   // Handle extra options update (replace)
   const promoCodeTouched = Object.prototype.hasOwnProperty.call(updatedData || {}, "promoCode");
+  const walletTouched = Object.prototype.hasOwnProperty.call(updatedData || {}, "useWalletCredit");
   const {
     extraOptions,
     sidePicks: sidePicksUpdate,
     promoCode: promoCodeUpdate,
+    useWalletCredit: useWalletCreditUpdate,
     square,
     squareCardId,
     paymentDetailId: paymentDetailIdUpdate,
@@ -758,8 +798,13 @@ async function updateAirportBookForUser(airportBookId, userId, updatedData, opts
   // silently zero out an already-applied promo discount, since the fare
   // calculator only ever applies the discount it's explicitly given.
   let discountAmount = Number(reloaded.promoDiscountAmountInDollars) || 0;
+  let walletCreditAmount = Number(reloaded.walletCreditAppliedInDollars) || 0;
+  const subtotal =
+    promoCodeTouched || walletTouched
+      ? await calculateAirportBookingSubtotal(reloaded)
+      : null;
+
   if (promoCodeTouched) {
-    const subtotal = await calculateAirportBookingSubtotal(reloaded);
     const result = await updateBookingPromoCode({
       code: promoCodeUpdate,
       userId,
@@ -774,9 +819,36 @@ async function updateAirportBookForUser(airportBookId, userId, updatedData, opts
     reloaded.hasDiscountApplied = discountAmount > 0;
   }
 
-  const totalTripFee = await calculateAirportBookingTotalTripPrice(reloaded, { discount: discountAmount });
+  if (walletTouched) {
+    await reverseRedemptionForBooking({
+      bookingId: reloaded.airportBookId,
+      bookingType: "Airport Service",
+    });
+    if (useWalletCreditUpdate === false || !reloaded.userId) {
+      walletCreditAmount = 0;
+    } else {
+      const remainingAfterPromo = Math.max(subtotal - discountAmount, 0);
+      const balance = await getWalletBalance(reloaded.userId);
+      walletCreditAmount = Math.round(Math.min(balance, remainingAfterPromo) * 100) / 100;
+    }
+    reloaded.walletCreditAppliedInDollars = walletCreditAmount;
+    reloaded.hasDiscountApplied = reloaded.hasDiscountApplied || walletCreditAmount > 0;
+  }
+
+  const totalTripFee = await calculateAirportBookingTotalTripPrice(reloaded, {
+    discount: discountAmount + walletCreditAmount,
+  });
   reloaded.totalTripFeeInDollars = totalTripFee;
   await reloaded.save();
+
+  if (walletTouched && walletCreditAmount > 0) {
+    await redeemWalletCredit({
+      userId: reloaded.userId,
+      bookingId: reloaded.airportBookId,
+      bookingType: "Airport Service",
+      amount: walletCreditAmount,
+    });
+  }
   const finalBook = await getAirportBookById(airportBook.airportBookId);
 
   const newTotal = Number(finalBook.totalTripFeeInDollars);
@@ -799,6 +871,7 @@ async function updateAirportBookForUser(airportBookId, userId, updatedData, opts
       userId: finalBook.userId,
       square,
       squareCardId,
+      booking: finalBook,
     });
     if (paymentUpdate) {
       if (paymentUpdate.paymentDetail) {
@@ -838,6 +911,7 @@ async function updateBookingStatus(airportBookId, updatedData) {
 
   if (updatedData.bookingStatus === "COMPLETED") {
     await creditReferralRewardIfCompleted("Airport Service", airportBookId);
+    await creditLoyaltyMilestoneIfEligible("Airport Service", airportBookId);
   }
 
   return saved;
@@ -1025,6 +1099,16 @@ async function getAirportBookById(airportBookId) {
     airportBook.hasDiscountApplied
       ? await getAppliedPromoCodeForBooking(airportBook.airportBookId, "Airport Service")
       : null
+  );
+
+  // Same display-only pattern as sideDetourFee/appliedPromoCode above — the
+  // full Square transaction trail for this booking, oldest first, so an
+  // admin (or the customer's own booking detail view) can see when a
+  // payment hold was renewed (see renewAuthorizationForBooking) or
+  // reconciled after a fare change, not just the single current status.
+  airportBook.setDataValue(
+    "paymentHistory",
+    await findTransactionHistory("AIRPORT", airportBook.airportBookId)
   );
 
   return airportBook;

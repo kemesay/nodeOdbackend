@@ -308,6 +308,7 @@ const {
   processBookingPayment,
   reconcilePaymentOnBookingUpdate,
 } = require("../payments/bookingSquarePayment.js");
+const { findTransactionHistory } = require("../payments/squarePaymentService.js");
 const { PaymentDetail } = require("../../models/PaymentDetail.js");
 
 const PAYMENT_DETAIL_SAFE_ATTRIBUTES = [
@@ -342,6 +343,12 @@ const {
   getAppliedPromoCodeForBooking,
   creditReferralRewardIfCompleted,
 } = require("../promoCodeService.js");
+const {
+  getWalletBalance,
+  redeemWalletCredit,
+  reverseRedemptionForBooking,
+} = require("../walletService.js");
+const { creditLoyaltyMilestoneIfEligible } = require("../loyaltyService.js");
 
 async function createPointToPointBook(pointToPointBookData) {
   const {
@@ -358,6 +365,7 @@ async function createPointToPointBook(pointToPointBookData) {
     square,
     squareCardId,
     promoCode,
+    useWalletCredit,
     ...otherData
   } = pointToPointBookData;
 
@@ -429,10 +437,10 @@ async function createPointToPointBook(pointToPointBookData) {
     // discount can never eat into gratuity, and gratuity (below) can then
     // be computed on the discounted ride cost rather than the pre-discount
     // sticker price.
+    const subtotal = await calculateP2PSubtotal(pointToPointBook);
     let appliedPromoCode = null;
     let discountAmount = 0;
     if (promoCode) {
-      const subtotal = await calculateP2PSubtotal(pointToPointBook);
       const result = await validatePromoCode({
         code: promoCode,
         userId,
@@ -446,16 +454,31 @@ async function createPointToPointBook(pointToPointBookData) {
       discountAmount = result.discount;
     }
 
+    // Wallet credit auto-applies (fully or partially) toward whatever's left
+    // of the fare after any promo discount — a third, independent discount
+    // bucket, additive with the promo discount, only for signed-in users
+    // (guests have no wallet). `useWalletCredit: false` opts out entirely.
+    let walletCreditAmount = 0;
+    if (userId && useWalletCredit !== false) {
+      const remainingAfterPromo = Math.max(subtotal - discountAmount, 0);
+      const walletBalance = await getWalletBalance(userId);
+      walletCreditAmount = Math.round(Math.min(walletBalance, remainingAfterPromo) * 100) / 100;
+    }
+
     // The actual charge — gratuity is computed inside here on the
-    // discounted ride cost when discountAmount > 0, and exactly as before
-    // (on the full ride cost) when it's 0.
+    // discounted ride cost when the combined discount > 0, and exactly as
+    // before (on the full ride cost) when it's 0.
     const chargeAmount = await calculateP2PTotalTripPrice(pointToPointBook, {
-      discount: discountAmount,
+      discount: discountAmount + walletCreditAmount,
     });
 
     pointToPointBook.totalTripFeeInDollars = chargeAmount;
     if (appliedPromoCode) {
       pointToPointBook.promoDiscountAmountInDollars = discountAmount;
+      pointToPointBook.hasDiscountApplied = true;
+    }
+    if (walletCreditAmount > 0) {
+      pointToPointBook.walletCreditAppliedInDollars = walletCreditAmount;
       pointToPointBook.hasDiscountApplied = true;
     }
     pointToPointBook = await pointToPointBook.save();
@@ -477,6 +500,13 @@ async function createPointToPointBook(pointToPointBookData) {
     if (paymentResult.paymentDetail) {
       await pointToPointBook.setPaymentDetail(paymentResult.paymentDetail);
     }
+    // The customer chose "add new card," but resolveSquareSourceId now saves
+    // it as a real card-on-file before charging it (see bookingSquarePayment.js)
+    // — the booking's own paymentMethod label should reflect that reality
+    // immediately, not wait for a later recharge to back-fill it.
+    if (paymentMethod === "SQUARE_NEW_CARD" && paymentResult.paymentDetail?.squareCardId) {
+      pointToPointBook.paymentMethod = "SQUARE_SAVED_CARD";
+    }
     pointToPointBook.paymentStatus = paymentResult.paymentStatus;
     await pointToPointBook.save();
 
@@ -489,6 +519,14 @@ async function createPointToPointBook(pointToPointBookData) {
         bookingId: pointToPointBook.pointToPointBookId,
         bookingType: "Point to point",
         discountApplied: discountAmount,
+      });
+    }
+    if (walletCreditAmount > 0) {
+      await redeemWalletCredit({
+        userId,
+        bookingId: pointToPointBook.pointToPointBookId,
+        bookingType: "Point to point",
+        amount: walletCreditAmount,
       });
     }
   } catch (error) {
@@ -552,10 +590,12 @@ async function updatePointToPointBookForUser(pointToPointBookId, userId, updated
   }
 
   const promoCodeTouched = Object.prototype.hasOwnProperty.call(updatedData || {}, "promoCode");
+  const walletTouched = Object.prototype.hasOwnProperty.call(updatedData || {}, "useWalletCredit");
   const {
     extraOptions,
     sidePicks: sidePicksUpdate,
     promoCode: promoCodeUpdate,
+    useWalletCredit: useWalletCreditUpdate,
     square,
     squareCardId,
     paymentDetailId: paymentDetailIdUpdate,
@@ -614,8 +654,11 @@ async function updatePointToPointBookForUser(pointToPointBookId, userId, updated
   // silently zero out an already-applied promo discount, since the fare
   // calculator only ever applies the discount it's explicitly given.
   let discountAmount = Number(reloaded.promoDiscountAmountInDollars) || 0;
+  let walletCreditAmount = Number(reloaded.walletCreditAppliedInDollars) || 0;
+  const subtotal =
+    promoCodeTouched || walletTouched ? await calculateP2PSubtotal(reloaded) : null;
+
   if (promoCodeTouched) {
-    const subtotal = await calculateP2PSubtotal(reloaded);
     const result = await updateBookingPromoCode({
       code: promoCodeUpdate,
       userId,
@@ -630,9 +673,42 @@ async function updatePointToPointBookForUser(pointToPointBookId, userId, updated
     reloaded.hasDiscountApplied = discountAmount > 0;
   }
 
-  const totalTripFee = await calculateP2PTotalTripPrice(reloaded, { discount: discountAmount });
+  // Same "touched" idiom as promo code: the key must be present in the PATCH
+  // body at all to act on it. Reverses any wallet credit this booking
+  // already drew first (so the balance is accurate before recomputing —
+  // same reason updateBookingPromoCode reverses the existing redemption
+  // first), then re-applies up to the current balance, unless the customer
+  // explicitly opted out (useWalletCredit: false) or this is a guest booking.
+  if (walletTouched) {
+    await reverseRedemptionForBooking({
+      bookingId: reloaded.pointToPointBookId,
+      bookingType: "Point to point",
+    });
+    if (useWalletCreditUpdate === false || !reloaded.userId) {
+      walletCreditAmount = 0;
+    } else {
+      const remainingAfterPromo = Math.max(subtotal - discountAmount, 0);
+      const balance = await getWalletBalance(reloaded.userId);
+      walletCreditAmount = Math.round(Math.min(balance, remainingAfterPromo) * 100) / 100;
+    }
+    reloaded.walletCreditAppliedInDollars = walletCreditAmount;
+    reloaded.hasDiscountApplied = reloaded.hasDiscountApplied || walletCreditAmount > 0;
+  }
+
+  const totalTripFee = await calculateP2PTotalTripPrice(reloaded, {
+    discount: discountAmount + walletCreditAmount,
+  });
   reloaded.totalTripFeeInDollars = totalTripFee;
   await reloaded.save();
+
+  if (walletTouched && walletCreditAmount > 0) {
+    await redeemWalletCredit({
+      userId: reloaded.userId,
+      bookingId: reloaded.pointToPointBookId,
+      bookingType: "Point to point",
+      amount: walletCreditAmount,
+    });
+  }
   const finalBook = await getPointToPointBookById(pointToPointBook.pointToPointBookId);
   const newTotal = Number(finalBook.totalTripFeeInDollars);
   // A customer switching cards sends `square` (a fresh nonce) or
@@ -654,6 +730,7 @@ async function updatePointToPointBookForUser(pointToPointBookId, userId, updated
       userId: finalBook.userId,
       square,
       squareCardId,
+      booking: finalBook,
     });
     if (paymentUpdate) {
       if (paymentUpdate.paymentDetail) {
@@ -767,6 +844,9 @@ async function updateBookingStatus(pointToPointBookId, updatedData) {
   if (updatedData.bookingStatus === "COMPLETED") {
     // No-op unless this ride was the triggering ride for a pending referral reward.
     await creditReferralRewardIfCompleted("Point to point", pointToPointBookId);
+    // No-op unless this ride is this customer's Nth completed ride and
+    // qualifies for the loyalty milestone (see loyaltyService.js).
+    await creditLoyaltyMilestoneIfEligible("Point to point", pointToPointBookId);
   }
 
   return saved;
@@ -862,6 +942,16 @@ async function getPointToPointBookById(pointToPointBookId) {
     pointToPointBook.hasDiscountApplied
       ? await getAppliedPromoCodeForBooking(pointToPointBook.pointToPointBookId, "Point to point")
       : null
+  );
+
+  // Same display-only pattern as sideDetourFee/appliedPromoCode above — the
+  // full Square transaction trail for this booking, oldest first, so an
+  // admin (or the customer's own booking detail view) can see when a
+  // payment hold was renewed (see renewAuthorizationForBooking) or
+  // reconciled after a fare change, not just the single current status.
+  pointToPointBook.setDataValue(
+    "paymentHistory",
+    await findTransactionHistory("P2P", pointToPointBook.pointToPointBookId)
   );
 
   return pointToPointBook;

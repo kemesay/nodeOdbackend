@@ -131,6 +131,7 @@ const {
 } = require("../../services/airportBooking/airportBookService.js");
 
 const authenticateToken = require("../../utils/getUserFromToken.js");
+const { ForbiddenError } = require("../../errors/CustomErrors.js");
 
 const { successResponse } = require("../../utils/responseUtil.js");
 
@@ -217,6 +218,14 @@ async function applyDiscountToAirportBookController(req, res, next) {
 
 async function getAirportBookController(req, res, _next) {
   const airportBook = await getAirportBookById(req.params.airportBookId);
+
+  const role = (req.user?.role || "").toLowerCase();
+  const isOwner =
+    airportBook.userId != null && req.user?.userId === airportBook.userId;
+  if (role !== "admin" && role !== "driver" && !isOwner) {
+    throw new ForbiddenError("Access denied: you do not own this booking.");
+  }
+
   return res.json(airportBook);
 }
 

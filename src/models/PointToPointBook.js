@@ -528,6 +528,16 @@ const PointToPointBook = sequelize.define(
         min: 0,
       },
     },
+    // Wallet credit applied to this booking (see walletService.js) — a third
+    // discount bucket, independent of and additive with the two above.
+    walletCreditAppliedInDollars: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0.00,
+      validate: {
+        min: 0,
+      },
+    },
     hasDiscountApplied: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
@@ -768,6 +778,9 @@ const validatePointToPointBook = Joi.object({
     })
   ).optional(),
   promoCode: Joi.string().trim().uppercase().max(20).optional(),
+  // Auto-apply is the default (omitted/true); false opts out of using wallet
+  // credit on this booking entirely.
+  useWalletCredit: Joi.boolean().default(true),
 })
   .custom((value, helpers) => {
     const { isLegacyPaymentProvider } = require("../config/paymentConfig.js");
@@ -826,6 +839,9 @@ const validatePointToPointBookUpdate = Joi.object({
   // this booking. Present + "" or null: remove it. Absent entirely: leave
   // whatever's already applied untouched.
   promoCode: Joi.string().trim().uppercase().max(20).allow("", null).optional(),
+  // Omitted: leave wallet credit as-is. true: (re)apply. false: remove it
+  // from this booking. Same "touched" idiom as promoCode above.
+  useWalletCredit: Joi.boolean(),
   bookingFor: Joi.string().valid("Myself", "SomeoneElse"),
   passengerFullName: Joi.string().min(2).max(100),
   passengerEmail: Joi.string().email().max(255),

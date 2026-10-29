@@ -34,12 +34,14 @@ async function quoteBookingFareController(req, res, next) {
 
     // A preview has no bookingId yet to count SidePickDetour rows against —
     // the caller (the booking form) reports how many detour stops are
-    // currently in the form instead.
+    // currently in the form instead. Charged per stop, same as the real
+    // booking-time calculation in sideDetourFeeFor (bookingFareCalculator.js).
     let sideDetourFee = 0;
-    if (Number(sideDetourCount) > 0) {
+    const detourCount = Number(sideDetourCount) || 0;
+    if (detourCount > 0) {
       const sideDetourSettings = await getSideDetourSettings();
       if (sideDetourSettings.isActive) {
-        sideDetourFee = Number(sideDetourSettings.startFee);
+        sideDetourFee = detourCount * Number(sideDetourSettings.startFee);
       }
     }
 
