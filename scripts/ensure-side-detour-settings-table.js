@@ -8,7 +8,7 @@
  * touches any other (already-existing) table. See src/config/database.js
  * for why blanket auto-alter is disabled.
  *
- * Usage: npm run db:side-detour-settings-table
+ * Usage: npm run db:side-stop-settings-table
  */
 const { config } = require("dotenv");
 config();
@@ -18,10 +18,10 @@ const { SideDetourSettings } = require("../src/models/SideDetourSettings.js");
 
 async function main() {
   await sequelize.authenticate();
-  console.log(`Connected (${sequelize.getDialect()}). Ensuring side_detour_settings exists...`);
+  console.log(`Connected (${sequelize.getDialect()}). Ensuring side_stop_settings exists...`);
 
   await SideDetourSettings.sync();
-  console.log("  side_detour_settings ensured");
+  console.log("  side_stop_settings ensured");
 
   const [settings, created] = await SideDetourSettings.findOrCreate({
     where: { id: 1 },
@@ -38,6 +38,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error("Failed to ensure side_detour_settings table:", error);
+  console.error("Failed to ensure side_stop_settings table:", error);
   process.exit(1);
 });

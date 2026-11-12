@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Cash-Out Request</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f2f2f2;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #F59E0B;
+            text-align: center;
+            font-size: 22px;
+        }
+
+        p {
+            margin-bottom: 16px;
+            line-height: 1.5;
+            color: #333333;
+        }
+
+        .amount-box {
+            background-color: #fff8ec;
+            border: 1px solid #F59E0B;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .amount-box .amount {
+            font-size: 28px;
+            font-weight: bold;
+            color: #F59E0B;
+        }
+
+        .details-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+        }
+
+        .details-table td {
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 14px;
+            color: #555555;
+        }
+
+        .details-table td.label {
+            font-weight: bold;
+            width: 40%;
+            color: #333333;
+        }
+
+        .badge {
+            display: inline-block;
+            background-color: #F59E0B;
+            color: #ffffff;
+            font-size: 12px;
+            font-weight: bold;
+            padding: 3px 10px;
+            border-radius: 12px;
+        }
+    </style>
+</head>
+
+<body>
+    <div
+        style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 10px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
+
+        <div
+            style="text-align: center; padding: 32px 0; background-color: #ffffff; margin-bottom: 20px; border-bottom: 2px solid #f0f0f0;">
+            <img src="https://odatransportation.com/static/media/Odaa%20Transportation%20-%20Logo_Primary%20Logo.391dbf01f07d5f1b361d.png"
+                alt="ODA Transportation Logo" style="max-width: 200px; height: auto;" />
+        </div>
+        <div class="container">
+            <p style="text-align: center;"><span class="badge">
+                    <%= requestedByAdmin ? "LOGGED BY ADMIN" : "PENDING REVIEW" %>
+                </span></p>
+            <h1>New Wallet Cash-Out Request</h1>
+            <p>
+                <% if (requestedByAdmin) { %>
+                A cash-out request was logged on behalf of a customer and is awaiting fulfillment.
+                <% } else { %>
+                A customer has submitted a self-service request to cash out their wallet credit balance.
+                <% } %>
+            </p>
+
+            <div class="amount-box">
+                <div>Amount Requested</div>
+                <div class="amount">$<%= amountRequested.toFixed(2) %></div>
+            </div>
+
+            <table class="details-table">
+                <tr>
+                    <td class="label">Customer</td>
+                    <td><%= fullName %></td>
+                </tr>
+                <tr>
+                    <td class="label">Email</td>
+                    <td><%= email %></td>
+                </tr>
+                <% if (phoneNumber) { %>
+                <tr>
+                    <td class="label">Phone</td>
+                    <td><%= phoneNumber %></td>
+                </tr>
+                <% } %>
+                <tr>
+                    <td class="label">Requested On</td>
+                    <td><%= requestedAt %></td>
+                </tr>
+                <tr>
+                    <td class="label">Remaining Wallet Balance</td>
+                    <td>$<%= balanceRemaining.toFixed(2) %></td>
+                </tr>
+                <% if (payout) { %>
+                <tr>
+                    <td class="label">Payout Method</td>
+                    <td><%= payout.label %></td>
+                </tr>
+                <% payout.rows.forEach(function(row) { %>
+                <tr>
+                    <td class="label"><%= row[0] %></td>
+                    <td><%= row[1] %></td>
+                </tr>
+                <% }) %>
+                <% } %>
+                <% if (note) { %>
+                <tr>
+                    <td class="label">Note</td>
+                    <td><%= note %></td>
+                </tr>
+                <% } %>
+                <tr>
+                    <td class="label">Request ID</td>
+                    <td>#<%= walletCashOutRequestId %></td>
+                </tr>
+            </table>
+
+            <% if (payout && payout.label === "Bank Transfer (ACH)") { %>
+            <p style="font-size: 12px; color: #999999;">
+                Account/routing numbers above are partially masked for email — view the full numbers in the Cash-Out
+                Requests dashboard when you're ready to send the payment.
+            </p>
+            <% } %>
+            <% if (!payout) { %>
+            <p style="font-size: 13px; color: #999999;">No payout method on file yet — contact the customer to
+                arrange payment.</p>
+            <% } %>
+
+            <p>Review and resolve this request from the <strong>Cash-Out Requests</strong> dashboard page.</p>
+            <p>ODA Transportation — Automated Notification</p>
+        </div>
+    </div>
+</body>
+
+</html>

@@ -99,13 +99,26 @@ function sideDetourFeeDisplay(booking) {
 }
 
 /**
+ * Same reasoning and same Sequelize setDataValue gotcha as sideDetourFeeDisplay
+ * above, for Hourly Charter's Long Distance Fee — stashed onto the booking via
+ * setDataValue() in getHourlyCharterBookById, not a declared model attribute.
+ */
+function longDistanceFeeDisplay(booking) {
+  const raw =
+    typeof booking.get === "function"
+      ? booking.get("longDistanceFee")
+      : booking.longDistanceFee;
+  return asMoney(raw);
+}
+
+/**
  * Side-pick detour stops are a list of SidePickDetour rows, not a single
  * denormalized column like "Stop on The Way" — so each stop gets its own
  * numbered reservationDetails key rather than one joined value. Both email
  * templates render reservationDetails as one table row per key via a plain
  * `Object.entries(...).forEach(...)` loop with no support for an array or a
  * multi-line value, so numbered keys are the zero-template-change way to
- * show more than one stop. A single stop renders as "Detour Stop" (nothing
+ * show more than one stop. A single stop renders as "Side Stop" (nothing
  * to number); not ordered by the DB query, so sorted by sortOrder here.
  */
 function addSideDetourStops(reservationDetails, booking) {
@@ -116,11 +129,11 @@ function addSideDetourStops(reservationDetails, booking) {
     : [];
   if (stops.length === 0) return;
   if (stops.length === 1) {
-    reservationDetails["Detour Stop"] = stops[0].address;
+    reservationDetails["Side Stop"] = stops[0].address;
     return;
   }
   stops.forEach((stop, index) => {
-    reservationDetails[`Detour Stop ${index + 1}`] = stop.address;
+    reservationDetails[`Side Stop ${index + 1}`] = stop.address;
   });
 }
 
@@ -151,7 +164,7 @@ function buildP2PFareDetails(booking) {
 
   const sideDetourFee = sideDetourFeeDisplay(booking);
   if (sideDetourFee > 0) {
-    fareDetails["Additional Stop Fee"] = formatUsd(sideDetourFee);
+    fareDetails["Side Stop Fee"] = formatUsd(sideDetourFee);
   }
 
   return applyDiscountToFareDetails(fareDetails, booking);
@@ -165,6 +178,11 @@ function buildHourlyFareDetails(booking) {
     "Child Car Seat Fee": formatUsd(breakdown.extraOptionsPrice),
     Gratuity: gratuityEmailLabel(booking, breakdown.gratuity),
   };
+
+  const longDistanceFee = longDistanceFeeDisplay(booking);
+  if (longDistanceFee > 0) {
+    fareDetails["Long Distance Fee"] = formatUsd(longDistanceFee);
+  }
 
   return applyDiscountToFareDetails(fareDetails, booking);
 }
@@ -202,7 +220,7 @@ function buildAirportFareDetails(booking) {
 
   const sideDetourFee = sideDetourFeeDisplay(booking);
   if (sideDetourFee > 0) {
-    fareDetails["Additional Stop Fee"] = formatUsd(sideDetourFee);
+    fareDetails["Side Stop Fee"] = formatUsd(sideDetourFee);
   }
 
   return applyDiscountToFareDetails(fareDetails, booking);

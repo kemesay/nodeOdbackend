@@ -6,6 +6,7 @@ const {
 const { ReferralReward } = require("../models/PromoCode.js");
 const { User } = require("../models/user/User.js");
 const { ValidationError, ResourceNotFoundError } = require("../errors/CustomErrors.js");
+const { sendCashOutRequestEmails } = require("../utils/emailSender.js");
 
 function round(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -240,7 +241,14 @@ async function adminAdjustWallet({ userId, amount, reason, adminId }) {
  * — it just makes the ask visible/auditable instead of living only in a
  * phone call. Rejects a request for more than the customer currently has.
  */
-async function createCashOutRequest({ userId, amountRequested, note = null, requestedByAdminId = null }) {
+async function createCashOutRequest({
+  userId,
+  amountRequested,
+  note = null,
+  requestedByAdminId = null,
+  payoutMethod = null,
+  payoutDetails = null,
+}) {
   const rounded = round(amountRequested);
   if (rounded <= 0) {
     throw new ValidationError("Cash-out amount must be greater than zero.");
@@ -252,13 +260,30 @@ async function createCashOutRequest({ userId, amountRequested, note = null, requ
     );
   }
 
-  return WalletCashOutRequest.create({
+  const request = await WalletCashOutRequest.create({
     userId,
     amountRequested: rounded,
     status: "pending",
     note,
     requestedByAdminId,
+    payoutMethod,
+    payoutDetails,
   });
+
+  // Best-effort — a slow/failed email must never undo an already-created,
+  // already-valid request. sendCashOutRequestEmails catches its own errors
+  // internally, so this await only ever waits, never throws.
+  const user = await User.findByPk(userId);
+  if (user) {
+    await sendCashOutRequestEmails({
+      user,
+      request,
+      balanceRemaining: round(balance - rounded),
+      requestedByAdmin: Boolean(requestedByAdminId),
+    });
+  }
+
+  return request;
 }
 
 /**

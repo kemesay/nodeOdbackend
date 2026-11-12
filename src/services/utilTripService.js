@@ -225,6 +225,9 @@ const { AirportPickupPreference } = require("../models/airportBooking/AirportPic
 const { ExtraOption } = require("../models/ExtraOption.js");
 const { SidePickDetour } = require("../models/booking/SidePickDetour.js");
 const { getSideDetourSettings } = require("./sideDetourSettingsService.js");
+const {
+  getHourlyLongDistanceSettings,
+} = require("./hourlyLongDistanceSettingsService.js");
 
 // Define a function to search user bookings by user ID
 async function searchUserBookingsByUserId(userId) {
@@ -289,6 +292,7 @@ const {
   calculateHourlyCharterFare,
   calculateAirportFare,
   carHasFareRates,
+  longDistanceFeeFor,
 } = require("../utils/bookingFareCalculator.js");
 
 async function ensureAirportBookingForFare(booking) {
@@ -401,6 +405,29 @@ async function sideDetourFareOptsFor(pointToPointBookId, airportBookId) {
 }
 
 /**
+ * Hourly Charter's Long Distance Fee opts — always fetched fresh (no cheap
+ * existence check like sideDetourFareOptsFor's SidePickDetour.count, since
+ * distance is computed straight from the booking's own pickup/drop-off
+ * coordinates, already on hand with no extra query needed).
+ */
+async function longDistanceFareOptsFor() {
+  const settings = await getHourlyLongDistanceSettings();
+  return {
+    longDistanceSettings: {
+      isActive: settings.isActive,
+      minimumDistanceInMiles: settings.minimumDistanceInMiles,
+      feeAmount: settings.feeAmount,
+    },
+  };
+}
+
+/** The actual dollar amount (0 if inactive or under threshold) for one booking. */
+async function getHourlyLongDistanceFeeForBooking(booking) {
+  const opts = await longDistanceFareOptsFor();
+  return longDistanceFeeFor(booking, opts);
+}
+
+/**
  * `discount` is optional and defaults to 0, which makes every one of these
  * three functions behave exactly as they did before a promo discount was
  * threaded through — every existing caller that doesn't pass one (fare
@@ -418,7 +445,8 @@ async function calculateP2PTotalTripPrice(booking, { discount = 0 } = {}) {
 
 async function calculateHourlyCharterTotalTripPrice(booking, { discount = 0 } = {}) {
   const hydrated = await ensureHourlyCharterBookingForFare(booking);
-  const { total } = calculateHourlyCharterFare(hydrated, { discount });
+  const opts = await longDistanceFareOptsFor();
+  const { total } = calculateHourlyCharterFare(hydrated, { ...opts, discount });
   return total;
 }
 
@@ -446,7 +474,8 @@ async function calculateP2PSubtotal(booking) {
 
 async function calculateHourlyCharterSubtotal(booking) {
   const hydrated = await ensureHourlyCharterBookingForFare(booking);
-  const { breakdown } = calculateHourlyCharterFare(hydrated);
+  const opts = await longDistanceFareOptsFor();
+  const { breakdown } = calculateHourlyCharterFare(hydrated, opts);
   return breakdown.subtotal;
 }
 
@@ -466,6 +495,7 @@ module.exports = {
   calculateHourlyCharterSubtotal,
   calculateAirportBookingSubtotal,
   getPaymentDetailByUserId,
+  getHourlyLongDistanceFeeForBooking,
 };
 
 

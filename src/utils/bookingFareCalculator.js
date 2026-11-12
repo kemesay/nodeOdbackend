@@ -102,6 +102,46 @@ function sideDetourFeeFor(booking, { sideDetourCount, sideDetourSettings } = {})
   return count > 0 ? roundMoney(count * sideDetourSettings.startFee) : 0;
 }
 
+/** Great-circle ("as the crow flies") distance in miles between two points. */
+function haversineDistanceMiles(lat1, lon1, lat2, lon2) {
+  if ([lat1, lon1, lat2, lon2].some((v) => v == null || v === "")) return 0;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const EARTH_RADIUS_MILES = 3958.8;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return EARTH_RADIUS_MILES * c;
+}
+
+/**
+ * Flat "Long Distance Fee" added once when an Hourly Charter booking's
+ * pickup and drop-off are farther apart (straight-line) than the admin's
+ * configured minimum — e.g. a charter that starts or ends well outside the
+ * normal service area. Computed server-side from the booking's own
+ * coordinates, never trusted from the client. Off by default; an admin
+ * turns it on and sets both the distance threshold and the fee from
+ * Long Distance Settings (see hourlyLongDistanceSettingsService.js).
+ *
+ * `longDistanceSettings` is meant to be passed explicitly by the caller
+ * (see longDistanceFareOptsFor in utilTripService.js) — the only way to
+ * guarantee correctness for the actual charge.
+ */
+function longDistanceFeeFor(booking, { longDistanceSettings } = {}) {
+  if (!longDistanceSettings?.isActive) return 0;
+  const distance = haversineDistanceMiles(
+    booking.pickupLatitude,
+    booking.pickupLongitude,
+    booking.dropoffLatitude,
+    booking.dropoffLongitude
+  );
+  return distance > asMoney(longDistanceSettings.minimumDistanceInMiles)
+    ? roundMoney(longDistanceSettings.feeAmount)
+    : 0;
+}
+
 function sumExtraOptionsPrice(extraOptions, throughKey, { roundTrip }) {
   if (!extraOptions) return 0;
 
@@ -231,7 +271,9 @@ function calculateHourlyCharterFare(booking, opts) {
     { roundTrip: false }
   );
 
-  const subtotal = roundMoney(carFare + extraOptionsPrice);
+  const longDistanceFee = longDistanceFeeFor(booking, opts);
+
+  const subtotal = roundMoney(carFare + extraOptionsPrice + longDistanceFee);
 
   const discount = roundMoney(Math.min(Math.max(asMoney(opts?.discount), 0), subtotal));
   const discountedSubtotal = roundMoney(subtotal - discount);
@@ -250,6 +292,7 @@ function calculateHourlyCharterFare(booking, opts) {
       legCarFare: legCar,
       carFare,
       extraOptionsPrice,
+      longDistanceFee,
       discount,
       subtotal,
       discountedSubtotal,
@@ -334,6 +377,9 @@ function calculateExtraTimeFare(pricePerHour, extraHours) {
 /**
  * Pre-authorization amount for LIVE billing mode.
  * Authorizes (selectedHours + bufferHours) so the card hold covers overtime.
+ * `longDistanceFee` (flat, known at booking time — see longDistanceFeeFor)
+ * is included here too, not just gratuity base, so the hold is never short
+ * of what endHourlyTrip ends up charging for a long-distance LIVE booking.
  */
 function calculateLiveModePreAuthAmount({
   car,
@@ -341,12 +387,13 @@ function calculateLiveModePreAuthAmount({
   bufferHours = 2,
   gratuityPercentage = 0,
   extraOptionsPerLeg = 0,
+  longDistanceFee = 0,
 }) {
   assertCarForFare(car);
   const totalHours = asMoney(selectedHours) + asMoney(bufferHours);
   const legCar = roundMoney(asMoney(car.pricePerHour) * totalHours);
   const extras = roundMoney(asMoney(extraOptionsPerLeg));
-  const subtotal = roundMoney(legCar + extras);
+  const subtotal = roundMoney(legCar + extras + asMoney(longDistanceFee));
   const gratuity = gratuityOnCarFare(legCar, gratuityPercentage);
   return roundMoney(subtotal + gratuity);
 }
@@ -447,6 +494,8 @@ module.exports = {
   legCarFareFromCar,
   gratuityOnCarFare,
   sideDetourFeeFor,
+  longDistanceFeeFor,
+  haversineDistanceMiles,
   carHasFareRates,
   calculatePointToPointFare,
   calculateHourlyCharterFare,

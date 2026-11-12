@@ -368,7 +368,7 @@ async function sendPaymentStatusUpdateEmailService(booking, bookingType) {
   const passengerFullName = booking.passengerFullName;
   const pickupDateTime = formatDateTime(booking.pickupDateTime);
 
-  // Same line-item breakdown (incl. Side Detour Fee when it applies) as the
+  // Same line-item breakdown (incl. Side Stop Fee when it applies) as the
   // accepted-booking email above, so "how much, for what" reads the same
   // regardless of which notification the customer got it from.
   let fareDetails = {};

@@ -598,6 +598,158 @@ async function sendBookingConfirmationAndAdminEmail(bookingType, booking, option
   }
 }
 
+const PAYOUT_METHOD_LABELS = {
+  zelle: "Zelle",
+  venmo: "Venmo",
+  cashapp: "Cash App",
+  paypal: "PayPal",
+  bank_transfer: "Bank Transfer (ACH)",
+  check: "Mailed Check",
+  other: "Other",
+};
+
+/** Masks all but the last few digits — e.g. "123456789" -> "•••••6789". */
+function maskDigits(value, visibleDigits = 4) {
+  const str = String(value || "");
+  if (str.length <= visibleDigits) return str;
+  return "•".repeat(str.length - visibleDigits) + str.slice(-visibleDigits);
+}
+
+/**
+ * Turns the customer's chosen payout method/details into display rows.
+ * `mask: true` (used only for the admin email, which travels over SMTP and
+ * can sit in inboxes/forwarding chains indefinitely) shows bank account and
+ * routing numbers as last-4-only — the full numbers are still visible to
+ * admin in the authenticated Cash-Out Requests dashboard when they're ready
+ * to actually send the money.
+ */
+function formatPayoutForDisplay(payoutMethod, payoutDetails, { mask = false } = {}) {
+  if (!payoutMethod || !payoutDetails) return null;
+  const label = PAYOUT_METHOD_LABELS[payoutMethod] || payoutMethod;
+  const rows = [];
+  switch (payoutMethod) {
+    case "zelle":
+      rows.push(["Zelle", payoutDetails.zelleEmailOrPhone]);
+      break;
+    case "venmo":
+      rows.push(["Venmo", `@${payoutDetails.venmoUsername}`]);
+      break;
+    case "cashapp":
+      rows.push(["Cash App", payoutDetails.cashtag]);
+      break;
+    case "paypal":
+      rows.push(["PayPal", payoutDetails.paypalEmail]);
+      break;
+    case "bank_transfer":
+      rows.push(["Account Holder", payoutDetails.accountHolderName]);
+      rows.push(["Bank", payoutDetails.bankName]);
+      rows.push([
+        "Routing Number",
+        mask ? maskDigits(payoutDetails.routingNumber) : payoutDetails.routingNumber,
+      ]);
+      rows.push([
+        "Account Number",
+        mask ? maskDigits(payoutDetails.accountNumber) : payoutDetails.accountNumber,
+      ]);
+      break;
+    case "check":
+      rows.push(["Mailing Address", payoutDetails.mailingAddress]);
+      break;
+    default:
+      rows.push(["Instructions", payoutDetails.instructions]);
+  }
+  return { label, rows };
+}
+
+/**
+ * Notify both the customer and admin when a wallet cash-out request is
+ * logged — whether the customer submitted it themselves or an admin logged
+ * it on their behalf (requestedByAdmin). Mirrors
+ * sendBookingConfirmationAndAdminEmail's Promise.allSettled pattern so a
+ * failure sending one side's email (bad address, transient SMTP hiccup)
+ * never silently cancels the other.
+ */
+async function sendCashOutRequestEmails({ user, request, balanceRemaining, requestedByAdmin = false }) {
+  try {
+    if (!user?.email) {
+      logger.warn("[sendCashOutRequestEmails] Skipped — no email on file for this user.");
+      return;
+    }
+
+    const baseData = {
+      fullName: user.fullName || "Customer",
+      email: user.email,
+      phoneNumber: user.phoneNumber || null,
+      amountRequested: Number(request.amountRequested),
+      balanceRemaining: Number(balanceRemaining),
+      note: request.note || null,
+      walletCashOutRequestId: request.walletCashOutRequestId,
+      requestedAt: new Date(request.createdAt || Date.now()).toLocaleString("en-US", dateOptions),
+      requestedByAdmin,
+    };
+
+    const customerData = {
+      ...baseData,
+      payout: formatPayoutForDisplay(request.payoutMethod, request.payoutDetails, { mask: false }),
+    };
+    const adminData = {
+      ...baseData,
+      payout: formatPayoutForDisplay(request.payoutMethod, request.payoutDetails, { mask: true }),
+    };
+
+    const customerTemplatePath = path.join(
+      __dirname, "..", "..", "emails", "templates", "cashOutRequestCustomer.ejs"
+    );
+    const adminTemplatePath = path.join(
+      __dirname, "..", "..", "emails", "templates", "cashOutRequestAdmin.ejs"
+    );
+
+    const customerHtml = ejs.render(fs.readFileSync(customerTemplatePath, "utf8"), customerData);
+    const adminHtml = ejs.render(fs.readFileSync(adminTemplatePath, "utf8"), adminData);
+
+    const transporter = nodemailer.createTransport(smtpConfig);
+
+    const customerOptions = {
+      from: fromEmail,
+      to: user.email,
+      subject: "We've received your cash-out request — ODA Transportation",
+      html: customerHtml,
+    };
+    const adminOptions = {
+      from: fromEmail,
+      to: adminEmail,
+      subject: `New wallet cash-out request — $${baseData.amountRequested.toFixed(2)}`,
+      html: adminHtml,
+    };
+
+    const [customerResult, adminResult] = await Promise.allSettled([
+      transporter.sendMail(customerOptions),
+      transporter.sendMail(adminOptions),
+    ]);
+
+    if (customerResult.status === "fulfilled") {
+      logger.info("Cash-out customer email sent: " + customerResult.value.response);
+    } else {
+      logger.error(
+        "Cash-out customer email send failed: " + customerResult.reason?.message,
+        { stack: customerResult.reason?.stack }
+      );
+    }
+
+    if (adminResult.status === "fulfilled") {
+      logger.info("Cash-out admin email sent: " + adminResult.value.response);
+    } else {
+      logger.error(
+        "Cash-out admin email send failed: " + adminResult.reason?.message,
+        { stack: adminResult.reason?.stack }
+      );
+    }
+  } catch (error) {
+    // Never let an email-sending problem fail the cash-out request itself.
+    logger.error("Cash-out email send failed: " + error.message, { stack: error.stack });
+  }
+}
+
 /** Notify admin and user when a new booking is placed */
 async function bookingNotification(bookingType, booking) {
   return sendBookingConfirmationAndAdminEmail(bookingType, booking, { isUpdate: false });
@@ -615,4 +767,5 @@ module.exports = {
   bookingUpdateNotification,
   paymentNotification,
   verifyEmailTransport,
+  sendCashOutRequestEmails,
 };

@@ -8,6 +8,7 @@ const {
   getCustomerIdForCard,
 } = require("./payments/squarePaymentService.js");
 const { isSquarePaymentProvider } = require("../config/paymentConfig.js");
+const logger = require("../config/logging.js");
 
 async function addOrUpdatePaymentDetail(
   creditCardNumber,
@@ -230,6 +231,20 @@ async function getPrimaryCard(userId) {
 
   return primaryCard;
 }
+
+/**
+ * Whether this user already has at least one card actually linked to
+ * Square (saved via the Square SDK, not a legacy raw-PAN row). Used to
+ * steer a failed "add new card" attempt toward an existing saved/primary
+ * card instead of telling the customer to keep re-entering card details.
+ */
+async function hasUsableSavedSquareCard(userId) {
+  if (!userId) return false;
+  const existing = await PaymentDetail.findOne({
+    where: { userId, squareCardId: { [Op.ne]: null } },
+  });
+  return Boolean(existing);
+}
 async function getFromExistingCards(paymentDetailId, userId) {
   if (!paymentDetailId || !userId) {
     throw new ValidationError("Payment detail ID and user ID are required");
@@ -257,28 +272,51 @@ async function resolveSquareCustomerId({ userId, paymentDetail, squareCardId }) 
     return paymentDetail.squareCustomerId;
   }
 
+  // Resolve authoritatively from Square, by the card's OWN id, whenever one
+  // is available — never guess from another of this user's PaymentDetail
+  // rows. A user can end up with cards saved under more than one Square
+  // customer record (e.g. a card added as "primary" and a different card
+  // added separately as a "saved card"); pairing the wrong guessed
+  // customer_id with THIS card's source_id sends Square a source_id/
+  // customer_id pair that don't actually belong together, which Square
+  // rejects as INVALID_CARD_DATA — this previously-used "most recently
+  // updated sibling" guess was exactly that bug, and it also permanently
+  // wrote the wrong guess back onto the card's own row, making the mistake
+  // stick on every future charge of that card.
+  const onFileId = squareCardId || paymentDetail?.squareCardId;
+  if (onFileId && String(onFileId).startsWith("ccof:")) {
+    try {
+      const customerId = await getCustomerIdForCard(onFileId);
+      if (paymentDetail?.paymentDetailId) {
+        await paymentDetail.update({ squareCustomerId: customerId }).catch(() => {});
+      }
+      return customerId;
+    } catch (err) {
+      // Square itself doesn't recognize this card id any more (removed,
+      // expired, or never valid). Don't let it keep silently failing as
+      // someone's "primary" card — unset that flag so it stops being
+      // auto-selected, and surface a clear message instead of retrying
+      // with a guessed customer id.
+      if (paymentDetail?.paymentDetailId && paymentDetail.isPrimary) {
+        await paymentDetail.update({ isPrimary: false }).catch(() => {});
+        logger.warn(
+          `[paymentDetailService] Cleared isPrimary on PaymentDetail ${paymentDetail.paymentDetailId} — Square no longer recognizes card ${onFileId}: ${err.message}`
+        );
+      }
+      throw new ValidationError(
+        "This saved card is no longer valid with Square. Please remove it and add it again, or choose a different payment method."
+      );
+    }
+  }
+
   if (userId) {
     const sibling = await PaymentDetail.findOne({
       where: { userId, squareCustomerId: { [Op.ne]: null } },
       order: [["updatedAt", "DESC"]],
     });
     if (sibling?.squareCustomerId) {
-      if (paymentDetail?.paymentDetailId) {
-        await paymentDetail
-          .update({ squareCustomerId: sibling.squareCustomerId })
-          .catch(() => {});
-      }
       return sibling.squareCustomerId;
     }
-  }
-
-  const onFileId = squareCardId || paymentDetail?.squareCardId;
-  if (onFileId && String(onFileId).startsWith("ccof:")) {
-    const customerId = await getCustomerIdForCard(onFileId);
-    if (paymentDetail?.paymentDetailId && customerId) {
-      await paymentDetail.update({ squareCustomerId: customerId }).catch(() => {});
-    }
-    return customerId;
   }
 
   throw new ValidationError(
@@ -396,4 +434,5 @@ module.exports = {
   setPrimaryCard,
   saveSquareCardOnFile,
   resolveSquareCustomerId,
+  hasUsableSavedSquareCard,
 };

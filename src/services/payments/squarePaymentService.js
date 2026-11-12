@@ -7,6 +7,8 @@ const {
 const { PaymentTransaction } = require("../../models/PaymentTransaction.js");
 const { ValidationError } = require("../../errors/CustomErrors.js");
 const { normalizePaymentBookingType } = require("../../utils/paymentBookingType.js");
+const { friendlySquareErrorMessage } = require("../../utils/squareErrorMessages.js");
+const logger = require("../../config/logging.js");
 
 async function squareFetch(path, method, body) {
   const creds = getSquareCredentials();
@@ -24,10 +26,17 @@ async function squareFetch(path, method, body) {
 
   const json = await res.json().catch(() => ({}));
   if (!res.ok || json?.errors?.length) {
-    const msg =
+    const rawMsg =
       json?.errors?.map((e) => e.detail || e.code).join("; ") ||
       `Square request failed (${res.status})`;
-    throw new ValidationError(msg);
+    // Square's own wording ("Authorization error: 'GENERIC_DECLINE'") means
+    // nothing to a customer — translate known codes into something
+    // actionable, while keeping the raw detail in the logs for debugging.
+    const friendlyMsg = json?.errors?.length
+      ? friendlySquareErrorMessage(json.errors)
+      : rawMsg;
+    logger.warn(`[squarePaymentService] ${path} failed: ${rawMsg}`);
+    throw new ValidationError(friendlyMsg);
   }
   return json;
 }

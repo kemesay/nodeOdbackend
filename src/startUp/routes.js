@@ -24,6 +24,7 @@ const bookingQuoteRoutes = require("../routes/bookingQuoteRoutes.js");
 const emailRoutes = require("../routes/emailRoutes.js");
 const promoCodeRoutes = require("../routes/promoCodeRoutes.js");
 const sideDetourSettingsRoutes = require("../routes/sideDetourSettingsRoutes.js");
+const hourlyLongDistanceSettingsRoutes = require("../routes/hourlyLongDistanceSettingsRoutes.js");
 const walletRoutes = require("../routes/walletRoutes.js");
 const adminWalletRoutes = require("../routes/admin/walletRoutes.js");
 const adminWalletCashOutRoutes = require("../routes/admin/walletCashOutRoutes.js");
@@ -62,6 +63,7 @@ module.exports = function setupRoutes(app) {
   app.use("/api/v1/email", emailRoutes);
   app.use("/api/v1/promo-codes", promoCodeRoutes);
   app.use("/api/v1/side-detour-settings", sideDetourSettingsRoutes);
+  app.use("/api/v1/hourly-long-distance-settings", hourlyLongDistanceSettingsRoutes);
   app.use("/api/v1/loyalty-settings", loyaltySettingsRoutes);
   app.use(errorHandler);
 };

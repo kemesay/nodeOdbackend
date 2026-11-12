@@ -27,14 +27,14 @@ async function tableExists(table) {
 async function main() {
   await sequelize.authenticate();
 
-  if (await tableExists("side_pick_detours")) {
-    console.log("side_pick_detours already exists — nothing to do.");
+  if (await tableExists("side_pick_stops")) {
+    console.log("side_pick_stops already exists — nothing to do.");
     await sequelize.close();
     return;
   }
 
   await SidePickDetour.sync();
-  console.log("Created side_pick_detours table.");
+  console.log("Created side_pick_stops table.");
   await sequelize.close();
 }
 

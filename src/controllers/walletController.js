@@ -36,12 +36,14 @@ async function adminAdjustWalletController(req, res, _next) {
 
 /** Admin logging that this customer asked to cash out some of their balance. */
 async function createCashOutRequestController(req, res, _next) {
-  const { amountRequested, note } = req.body;
+  const { amountRequested, note, payoutMethod, payoutDetails } = req.body;
   const request = await createCashOutRequest({
     userId: req.params.userId,
     amountRequested,
     note,
     requestedByAdminId: req.user.userId,
+    payoutMethod,
+    payoutDetails,
   });
   return res.status(201).json(request);
 }
@@ -61,12 +63,14 @@ async function listCashOutRequestsController(req, res, _next) {
  * the existing resolve endpoint before any money actually moves.
  */
 async function createMyCashOutRequestController(req, res, _next) {
-  const { amountRequested, note } = req.body;
+  const { amountRequested, note, payoutMethod, payoutDetails } = req.body;
   const request = await createCashOutRequest({
     userId: req.user.userId,
     amountRequested,
     note,
     requestedByAdminId: null,
+    payoutMethod,
+    payoutDetails,
   });
   return res.status(201).json(request);
 }

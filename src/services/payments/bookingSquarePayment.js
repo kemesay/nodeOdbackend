@@ -13,6 +13,7 @@ const {
   getFromExistingCards,
   resolveSquareCustomerId,
   getPaymentDetailById,
+  hasUsableSavedSquareCard,
 } = require("../paymentDetailService.js");
 const squarePaymentService = require("./squarePaymentService.js");
 const {
@@ -152,8 +153,21 @@ async function resolveSquareSourceId({
           // back to charging square.sourceId here would just guarantee a
           // second, doomed call (Square's CARD_TOKEN_USED). The client must
           // re-tokenize the card (request a fresh nonce) and retry.
+          //
+          // Square does not block re-saving a card that's already on file
+          // (duplicates are allowed), so this is NOT caused by the customer
+          // re-adding a card they already have saved — it's a genuine
+          // decline/error on Square's card-verification step, which can be
+          // stricter than a real purchase. If they already have a working
+          // saved/primary card, point them at it instead of just asking for
+          // another round of re-entering details.
+          const alreadyHasSavedCard = await hasUsableSavedSquareCard(userId).catch(
+            () => false
+          );
           throw new ValidationError(
-            "We couldn't save this card with Square — it may have been declined or the card session expired. Please re-enter your card details and try again."
+            alreadyHasSavedCard
+              ? "We couldn't verify this card with Square right now. If you've already saved a card, choose your saved or primary card instead — or re-enter the new card's details to try again."
+              : "We couldn't save this card with Square — it may have been declined or the card session expired. Please re-enter your card details and try again."
           );
         }
         throw err;

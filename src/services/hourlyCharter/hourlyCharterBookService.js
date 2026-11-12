@@ -320,6 +320,7 @@ const PAYMENT_DETAIL_SAFE_ATTRIBUTES = [
 const {
   calculateHourlyCharterTotalTripPrice,
   calculateHourlyCharterSubtotal,
+  getHourlyLongDistanceFeeForBooking,
 } = require("../utilTripService.js");
 const {
   calculateExtraTimeFare,
@@ -490,11 +491,13 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
     if (billingMode === "LIVE" && hourlyCharterBook.Car) {
       const bufferHours = hourlyCharterBook.preAuthBufferHours || 2;
       const gratuityPct = asMoney(hourlyCharterBook.Gratuity?.percentage);
+      const longDistanceFee = await getHourlyLongDistanceFeeForBooking(hourlyCharterBook);
       chargeAmount = calculateLiveModePreAuthAmount({
         car: hourlyCharterBook.Car,
         selectedHours: hourlyCharterBook.selectedHours,
         bufferHours,
         gratuityPercentage: gratuityPct,
+        longDistanceFee,
       });
     }
 
@@ -915,6 +918,17 @@ async function createHourlyCharterBook(hourlyCharterBookData) {
       hourlyCharterBook.setDataValue(
         "paymentHistory",
         await findTransactionHistory("HOURLY", hourlyCharterBook.hourlyCharterBookId)
+      );
+
+      // Long Distance Fee isn't its own persisted column (see
+      // HourlyLongDistanceSettings) — computed here, best-effort, from this
+      // booking's own pickup/drop-off coordinates and the CURRENT admin
+      // setting, same approximation sideDetourFee makes for P2P/Airport.
+      // Set as a plain (undeclared) data value so it round-trips through
+      // res.json() without becoming a real, persisted model attribute.
+      hourlyCharterBook.setDataValue(
+        "longDistanceFee",
+        await getHourlyLongDistanceFeeForBooking(hourlyCharterBook)
       );
 
       return hourlyCharterBook;

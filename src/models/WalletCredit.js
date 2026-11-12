@@ -4,6 +4,19 @@ const Joi = require("joi");
 const { User } = require("./user/User.js");
 const { BOOKING_TYPES } = require("./PromoCode.js");
 
+/** Where the admin should actually send cash-out money — set by the
+ * customer (or an admin logging on their behalf) at request time, so
+ * resolving a request doesn't depend on a separate phone call to ask. */
+const PAYOUT_METHODS = [
+  "zelle",
+  "venmo",
+  "cashapp",
+  "paypal",
+  "bank_transfer",
+  "check",
+  "other",
+];
+
 /**
  * One row per earned "lot" of wallet credit. A lot is created when a
  * referral reward is credited (see promoCodeService.creditReferralRewardIfCompleted,
@@ -193,6 +206,21 @@ const WalletCashOutRequest = sequelize.define(
       type: DataTypes.DATE,
       allowNull: true,
     },
+    payoutMethod: {
+      // e.g. "zelle" | "bank_transfer" | ... — see PAYOUT_METHODS. Nullable:
+      // an admin logging a request over the phone may not have this yet.
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      validate: { isIn: [PAYOUT_METHODS] },
+    },
+    payoutDetails: {
+      // Shape depends on payoutMethod — see validateCreateCashOutRequest
+      // for exactly which fields each method requires. Never a raw card
+      // number; at most a bank account/routing number, which is not a
+      // Square-tokenizable value in the first place.
+      type: DataTypes.JSON,
+      allowNull: true,
+    },
   },
   {
     sequelize,
@@ -216,11 +244,64 @@ const validateAdminAdjustWallet = Joi.object({
   reason: Joi.string().trim().min(3).max(255).required(),
 });
 
+/** Shape of `payoutDetails`, keyed by `payoutMethod` — never a raw card
+ * number; bank_transfer is the only one with account-numeric fields. */
+const PAYOUT_DETAILS_SCHEMAS = {
+  zelle: Joi.object({
+    zelleEmailOrPhone: Joi.string().trim().min(3).max(100).required(),
+  }),
+  venmo: Joi.object({
+    venmoUsername: Joi.string().trim().min(2).max(60).required(),
+  }),
+  cashapp: Joi.object({
+    cashtag: Joi.string().trim().min(2).max(60).required(),
+  }),
+  paypal: Joi.object({
+    paypalEmail: Joi.string().trim().email().required(),
+  }),
+  bank_transfer: Joi.object({
+    accountHolderName: Joi.string().trim().min(2).max(100).required(),
+    bankName: Joi.string().trim().min(2).max(100).required(),
+    routingNumber: Joi.string()
+      .trim()
+      .pattern(/^\d{9}$/)
+      .required()
+      .messages({ "string.pattern.base": "Routing number must be exactly 9 digits." }),
+    accountNumber: Joi.string()
+      .trim()
+      .pattern(/^\d{4,17}$/)
+      .required()
+      .messages({ "string.pattern.base": "Account number must be 4 to 17 digits." }),
+  }),
+  check: Joi.object({
+    mailingAddress: Joi.string().trim().min(5).max(255).required(),
+  }),
+  other: Joi.object({
+    instructions: Joi.string().trim().min(3).max(255).required(),
+  }),
+};
+
 /** Admin logging that a customer asked to cash out some of their balance. */
 const validateCreateCashOutRequest = Joi.object({
   amountRequested: Joi.number().min(0.01).required(),
   note: Joi.string().trim().max(255).allow("", null),
-});
+  // Optional — an admin logging a request by phone may not have this yet.
+  // When the customer submits it themselves, the website/app always sends
+  // it, so admin knows exactly where to send money without calling first.
+  payoutMethod: Joi.string().valid(...PAYOUT_METHODS),
+  payoutDetails: Joi.when("payoutMethod", {
+    is: Joi.exist(),
+    then: Joi.alternatives()
+      .conditional("payoutMethod", {
+        switch: PAYOUT_METHODS.map((method) => ({
+          is: method,
+          then: PAYOUT_DETAILS_SCHEMAS[method],
+        })),
+      })
+      .required(),
+    otherwise: Joi.forbidden(),
+  }),
+}).and("payoutMethod", "payoutDetails");
 
 /**
  * Admin settling a logged request — "fulfilled" means the cash was actually
@@ -242,4 +323,5 @@ module.exports = {
   validateAdminAdjustWallet,
   validateCreateCashOutRequest,
   validateResolveCashOutRequest,
+  PAYOUT_METHODS,
 };
